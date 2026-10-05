@@ -1,0 +1,23 @@
+modLoader="javafml"
+loaderVersion="[43,)"
+license="MIT"
+
+[[mods]]
+modId="slenderman"
+version="1.0.0"
+displayName="Slenderman"
+description='''A tall, detailed Slenderman that freezes when you look at him and stalks you when you do not.'''
+
+[[dependencies.slenderman]]
+modId="forge"
+mandatory=true
+versionRange="[43,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.slenderman]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.19.2,1.20)"
+ordering="NONE"
+side="BOTH"
