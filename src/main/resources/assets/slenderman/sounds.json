@@ -1,0 +1,8 @@
+{
+  "roaming": {
+    "category": "hostile",
+    "sounds": [
+      { "name": "slenderman:roaming" }
+    ]
+  }
+}
