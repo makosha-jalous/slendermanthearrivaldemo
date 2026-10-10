@@ -1,0 +1,122 @@
+{
+  "roaming": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:roaming"
+      }
+    ]
+  },
+  "dramatic1a": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:dramatic1a"
+      }
+    ]
+  },
+  "dramatic1b": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:dramatic1b"
+      }
+    ]
+  },
+  "dramatic1c": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:dramatic1c"
+      }
+    ]
+  },
+  "sight1a": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight1a"
+      }
+    ]
+  },
+  "sight1b": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight1b"
+      }
+    ]
+  },
+  "sight1c": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight1c"
+      }
+    ]
+  },
+  "sight1d": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight1d"
+      }
+    ]
+  },
+  "sight2": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight2"
+      }
+    ]
+  },
+  "sight2a": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight2a"
+      }
+    ]
+  },
+  "sight3": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight3"
+      }
+    ]
+  },
+  "sight3a": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight3a"
+      }
+    ]
+  },
+  "sight3b": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight3b"
+      }
+    ]
+  },
+  "sight4a": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight4a"
+      }
+    ]
+  },
+  "sight4b": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "slenderman:sight4b"
+      }
+    ]
+  }
+}
