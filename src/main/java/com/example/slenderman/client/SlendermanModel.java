@@ -391,11 +391,11 @@ public class SlendermanModel extends EntityModel<SlendermanEntity> {
                 seg.visible = e > 0.25F + 0.65F * (j - 1) / (SEGMENTS - 1);
                 // slow travelling waves in two directions with a phase shift = a soft, snake-like writhing;
                 // every segment follows the one before it a little later, the tip moves the most
-                float amp = (0.65F + 0.08F * j) * e;
+                tentAmp = (0.65F + 0.08F * j) * e;
                 float wave = Mth.sin(ageInTicks * 0.065F - j * 0.70F + seed);
                 float sway = Mth.sin(ageInTicks * 0.050F - j * 0.60F + seed * 1.7F + 1.3F);
                 seg.zRot = tside * 0.10F * fan + 0.20F * amp * wave;   // gentle outward arc + side wave
-                seg.xRot = 0.16F * amp * sway;                          // up/down wave
+                seg.xRot = 0.16F * tentAmp * sway;                          // up/down wave
                 seg.yRot = 0F;
             }
         }
