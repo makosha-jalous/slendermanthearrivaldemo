@@ -8,11 +8,13 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Matrix3f;
 import com.mojang.math.Matrix4f;
 import com.mojang.math.Vector3f;
+import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -45,6 +47,10 @@ public class SlenderPageRenderer extends EntityRenderer<SlenderPageEntity> {
     @Override
     public void render(SlenderPageEntity entity, float entityYaw, float partialTicks, PoseStack poseStack,
                        MultiBufferSource buffer, int packedLight) {
+        // light of the air block right in front of the sheet (works on floors, walls and ceilings alike)
+        BlockPos front = new BlockPos(entity.getX(), entity.getY(), entity.getZ());
+        int light = LevelRenderer.getLightColor(entity.level, front);
+
         poseStack.pushPose();
 
         // the quad is built facing +Z (south); turn it so that it faces the side of the block it is stuck to
@@ -62,10 +68,10 @@ public class SlenderPageRenderer extends EntityRenderer<SlenderPageEntity> {
         Matrix3f normal = last.normal();
         VertexConsumer consumer = buffer.getBuffer(RenderType.entityCutoutNoCull(this.getTextureLocation(entity)));
 
-        vertex(consumer, pose, normal, -HALF_W, -HALF_H, 0.0F, 1.0F, packedLight);
-        vertex(consumer, pose, normal, HALF_W, -HALF_H, 1.0F, 1.0F, packedLight);
-        vertex(consumer, pose, normal, HALF_W, HALF_H, 1.0F, 0.0F, packedLight);
-        vertex(consumer, pose, normal, -HALF_W, HALF_H, 0.0F, 0.0F, packedLight);
+        vertex(consumer, pose, normal, -HALF_W, -HALF_H, 0.0F, 1.0F, light);
+        vertex(consumer, pose, normal, HALF_W, -HALF_H, 1.0F, 1.0F, light);
+        vertex(consumer, pose, normal, HALF_W, HALF_H, 1.0F, 0.0F, light);
+        vertex(consumer, pose, normal, -HALF_W, HALF_H, 0.0F, 0.0F, light);
 
         poseStack.popPose();
         super.render(entity, entityYaw, partialTicks, poseStack, buffer, packedLight);

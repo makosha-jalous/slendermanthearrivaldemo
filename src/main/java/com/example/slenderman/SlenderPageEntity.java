@@ -13,9 +13,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
@@ -105,10 +103,6 @@ public class SlenderPageEntity extends Entity {
             this.setBoundingBox(this.makeBox());
         }
     }
-
-    /** the light of the page is measured at its centre (not half a block above it), so a ceiling page is not dark. */
-    @Override
-    protected float getStandingEyeHeight(Pose pose, EntityDimensions dimensions) { return 0.0F; }
 
     /** a page can be seen from far away (up to 64 blocks), the way you spot it with the flashlight. */
     @Override
