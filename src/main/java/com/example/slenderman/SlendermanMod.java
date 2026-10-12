@@ -9,6 +9,7 @@ import net.minecraft.world.item.Item;
 import net.minecraftforge.common.ForgeSpawnEggItem;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -39,6 +40,31 @@ public class SlendermanMod {
     public static final RegistryObject<Item> SPAWN_EGG = ITEMS.register("slenderman_spawn_egg",
             () -> new ForgeSpawnEggItem(SLENDERMAN, 0x101018, 0xD8D8DC,
                     new Item.Properties().tab(CreativeModeTab.TAB_MISC)));
+
+    /**
+     * a sheet of paper stuck to a block surface (see SlenderPageEntity). Static: its position is never updated
+     * after it is placed.
+     */
+    public static final RegistryObject<EntityType<SlenderPageEntity>> PAGE = ENTITIES.register("slender_page",
+            () -> EntityType.Builder.<SlenderPageEntity>of(SlenderPageEntity::new, MobCategory.MISC)
+                    .sized(0.6F, 0.6F)
+                    .fireImmune()
+                    .clientTrackingRange(10)
+                    .updateInterval(Integer.MAX_VALUE)
+                    .build("slender_page"));
+
+    /**
+     * the 8 pages as items (slender_page_1 .. slender_page_8), found in the creative tab "Misc".
+     * Right click on a block surface sticks the page there.
+     */
+    public static final List<RegistryObject<Item>> PAGE_ITEMS = List.of(
+            registerPage(1), registerPage(2), registerPage(3), registerPage(4),
+            registerPage(5), registerPage(6), registerPage(7), registerPage(8));
+
+    private static RegistryObject<Item> registerPage(int number) {
+        return ITEMS.register("slender_page_" + number,
+                () -> new SlenderPageItem(number, new Item.Properties().tab(CreativeModeTab.TAB_MISC).stacksTo(16)));
+    }
 
     /** the looping sound that comes from Slenderman (file: assets/slenderman/sounds/roaming.ogg). */
     public static final RegistryObject<SoundEvent> ROAMING = SOUNDS.register("roaming",
@@ -86,5 +112,10 @@ public class SlendermanMod {
         ENTITIES.register(bus);
         ITEMS.register(bus);
         SOUNDS.register(bus);
+        bus.addListener(this::commonSetup);
+    }
+
+    private void commonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(SlenderNetwork::register);
     }
 }
