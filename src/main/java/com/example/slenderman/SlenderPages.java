@@ -24,6 +24,11 @@ public final class SlenderPages {
         int count = Math.min(TOTAL, get(player) + 1);
         player.getPersistentData().putInt(KEY, count);
         SlenderNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new PagesCollectedMessage(count));
+        // every page makes him angrier: the Slenderman(s) around prepare an ambush
+        for (SlendermanEntity slender : player.level.getEntitiesOfClass(SlendermanEntity.class,
+                player.getBoundingBox().inflate(256.0D))) {
+            slender.onPageTaken(count);
+        }
     }
 
     /** silently tells the client how many pages there are (no text, no pickup sound): only the ambient music follows it. */

@@ -26,6 +26,11 @@ public class PageAmbientLoop extends AbstractTickableSoundInstance {
         this.step = 1.0F / Math.max(1, fadeInTicks);
     }
 
+    /** stops the loop at once (the next group is already playing). */
+    public void halt() {
+        this.stop();
+    }
+
     /** the loop gets quieter and stops by itself when it is silent. */
     public void fadeOut(int ticks) {
         this.fadingOut = true;
