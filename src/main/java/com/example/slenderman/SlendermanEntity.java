@@ -988,4 +988,21 @@ public class SlendermanEntity extends PathfinderMob {
         this.yBodyRot = newYaw;
         this.setYHeadRot(newYaw);
     }
+    /**
+     * Вызывается из SlenderPages, когда ближайший игрок подбирает страницу.
+     * Сбрасывает таймеры, чтобы Слендермен быстрее устроил засаду.
+     */
+    public void onPageTaken(int count) {
+        this.stage = Mth.clamp(count, 1, SlenderPages.TOTAL);
+        this.ambushTicks = AMBUSH_EVERY[this.stage] - 20;
+        this.watchTicks = 0;
+        this.farTicks = 0;
+        
+        if (count >= SlenderPages.TOTAL && this.level instanceof ServerLevel) {
+            Player player = this.findTarget();
+            if (player != null && this.finalePhase == FINALE_NONE) {
+                this.startFinale(player);
+            }
+        }
+    }
 }
