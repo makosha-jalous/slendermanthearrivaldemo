@@ -118,5 +118,55 @@
         "name": "slenderman:sight4b"
       }
     ]
+  },
+  "pagegrab": {
+    "category": "players",
+    "sounds": [
+      {
+        "name": "slenderman:pagegrab"
+      },
+      {
+        "name": "slenderman:pagegrab1"
+      },
+      {
+        "name": "slenderman:pagegrab2"
+      }
+    ]
+  },
+  "page_ambient_1_2": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "slenderman:page1-2",
+        "stream": false
+      }
+    ]
+  },
+  "page_ambient_3_4": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "slenderman:page3-4",
+        "stream": false
+      }
+    ]
+  },
+  "page_ambient_5_6": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "slenderman:page5-6",
+        "stream": false
+      }
+    ]
+  },
+  "page_ambient_7": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "slenderman:page7",
+        "stream": false
+      }
+    ]
   }
 }

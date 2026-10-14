@@ -107,6 +107,19 @@ public class SlendermanMod {
         return SOUNDS.register(name, () -> new SoundEvent(new ResourceLocation(ID, name)));
     }
 
+    /** the sound of taking a page: one event with three files (pagegrab, pagegrab1, pagegrab2), one is picked at random. */
+    public static final RegistryObject<SoundEvent> PAGE_GRAB = registerScream("pagegrab");
+
+    /**
+     * the ambient loops by collected pages (files page1-2, page3-4, page5-6, page7 in assets/slenderman/sounds/):
+     * index 0 = pages 1-2, 1 = pages 3-4, 2 = pages 5-6, 3 = page 7.
+     */
+    public static final List<RegistryObject<SoundEvent>> PAGE_AMBIENTS = List.of(
+            registerScream("page_ambient_1_2"),
+            registerScream("page_ambient_3_4"),
+            registerScream("page_ambient_5_6"),
+            registerScream("page_ambient_7"));
+
     public SlendermanMod() {
         IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
         ENTITIES.register(bus);

@@ -26,7 +26,14 @@ public final class SlenderPages {
         SlenderNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new PagesCollectedMessage(count));
     }
 
+    /** silently tells the client how many pages there are (no text, no pickup sound): only the ambient music follows it. */
+    public static void sync(ServerPlayer player) {
+        SlenderNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                new PagesCollectedMessage(get(player), false));
+    }
+
     public static void reset(ServerPlayer player) {
         player.getPersistentData().putInt(KEY, 0);
+        sync(player);
     }
 }
