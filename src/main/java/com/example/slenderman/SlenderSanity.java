@@ -16,7 +16,7 @@ public final class SlenderSanity {
     // ---- seconds of looking at him until the loss goes from 0 to 100 ----
     /** closer than this: NEAR_SECONDS. */
     public static final double NEAR_DIST = 5.0D;
-    public static final double NEAR_SECONDS = 3.0D;
+    public static final double NEAR_SECONDS = 4.0D;
     /** at this distance: MID_SECONDS. */
     public static final double MID_DIST = 15.0D;
     public static final double MID_SECONDS = 20.0D;

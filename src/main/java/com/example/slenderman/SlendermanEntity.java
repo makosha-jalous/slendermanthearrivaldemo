@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.EntityDamageSource;
@@ -128,12 +129,12 @@ public class SlendermanEntity extends PathfinderMob {
     private static final float ANGER_CHANCE = 0.40F;
 
     // ---- aggression stages: one per collected page (index = pages, 1..8; index 0 is never used) ----
-    // 1-2 pages: a watcher 35-40 blocks away, never attacks | 3-4: stalks 25-30 blocks away, steps into the way when the player runs
-    // 5-6: hunter 15-20 blocks away, appears in front of the player | 7: open hunt 5-10 blocks away, steps into the way (50 %)
+    // 1-2 pages: a watcher 20-25 blocks away, never attacks | 3-4: stalks 13-17 blocks away, steps into the way when the player runs
+    // 5-6: hunter 8-10 blocks away, appears in front of the player | 7: open hunt 5-7 blocks away, steps into the way (50 %)
     // 8: the finale (he is gone for 10 s, then stands behind the player, then disappears)
     //                                                     0     1     2     3     4     5     6     7     8
     /** the distance he keeps to the player while stalking (blocks). */
-    private static final double[] KEEP_DIST     = {37.5, 37.5, 37.5, 27.5, 27.5, 17.5, 17.5,  7.5,  7.5};
+    private static final double[] KEEP_DIST     = {22.5, 22.5, 22.5, 15.0, 15.0,  9.0,  9.0,  6.0,  6.0};
     /** walking speed multiplier (0 = he does not walk, he only appears at a new place). */
     private static final double[] WALK_MOD      = { 0.0,  0.7,  0.7,  0.8,  1.0,  1.15, 1.3,  1.5,  1.5};
     /** ticks between two "ambush" teleports (0 = none) and the chance that such a check really teleports. */
@@ -157,12 +158,22 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double   WATCH_STEP    = 8.0D;
 
     // ---- teleport ability ----
-    /** every 30-50 s he checks whether he may use ONE teleport; the chance depends on the pages (index = pages). */
-    private static final float[] TELEPORT_CHANCE = { 0F, 0.30F, 0.30F, 0.30F, 0.30F, 0.40F, 0.40F, 0.50F, 0.50F};
-    private static final int TELEPORT_CHECK_MIN = 20 * 30;
-    private static final int TELEPORT_CHECK_RANDOM = 20 * 20;
-    /** inside a structure (no sky above the player) the chance is multiplied by this (he likes corners there). */
-    private static final float INDOOR_FACTOR = 1.5F;
+    /** the chance of one roll (index = pages): 1-2 pages always 20 %, 3-4: 30 %, 5-6: 40 %, 7: 50 %. */
+    private static final float[] TELEPORT_CHANCE = { 0F, 0.20F, 0.20F, 0.30F, 0.30F, 0.40F, 0.40F, 0.50F, 0.50F};
+    /** ticks between two rolls = CHECK_MIN + random(CHECK_RAND): 1-4 pages 30-50 s, 5-6 pages 15-20 s, 7 pages 5-10 s. */
+    private static final int[] CHECK_MIN  = {0, 600, 600, 600, 600, 300, 300, 100, 100};
+    private static final int[] CHECK_RAND = {0, 400, 400, 400, 400, 100, 100, 100, 100};
+    /** a successful roll waits at most this long (10 s) for a moment when he may teleport (he is not looked at). */
+    private static final int ARMED_MAX_TICKS = 20 * 10;
+    /** pages 5-7: the player stands still for 15 s (and again every 15 s) -> he may punish him. */
+    private static final int PUNISH_TICKS = 20 * 15;
+    /** inside a structure / without a route to the player he appears at a new spot every 5 s until he is in his band. */
+    private static final int HOP_TICKS = 100;
+    /** the player runs and is farther than the band by this much -> he appears closer (every 3 s at most). */
+    private static final double FLEE_GAP = 6.0D;
+    private static final int CHASE_TICKS = 60;
+    /** the tentacles come out when this much of the sanity (0..100) is lost. */
+    private static final float TENTACLE_SANITY = 60.0F;
     /** stages 1-2: stared at for this long (ticks) -> he may appear in another place. */
     private static final int STARE_TICKS = 120;
     /** stages 1-2: the player stands still for 30 s -> he may appear in front of him. */
@@ -171,9 +182,9 @@ public class SlendermanEntity extends PathfinderMob {
     private static final int STILL_TICKS = 20 * 6;
     /** how close he stands "right behind" the player (blocks, centre to centre). Touching him (about 0.7) kills. */
     private static final double CONTACT_DIST = 1.6D;
-    /** the distance band he keeps while stalking (blocks), index = pages collected. */
-    private static final double[] BAND_MIN = {35.0, 35.0, 35.0, 25.0, 25.0, 15.0, 15.0,  5.0,  5.0};
-    private static final double[] BAND_MAX = {40.0, 40.0, 40.0, 30.0, 30.0, 20.0, 20.0, 10.0, 10.0};
+    /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 20-25, 3-4: 13-17, 5-6: 8-10, 7: 5-7. */
+    private static final double[] BAND_MIN = {20.0, 20.0, 20.0, 13.0, 13.0,  8.0,  8.0,  5.0,  5.0};
+    private static final double[] BAND_MAX = {25.0, 25.0, 25.0, 17.0, 17.0, 10.0, 10.0,  7.0,  7.0};
     /** "far behind" = farther than the band by this much. After 4 s of that (or of being stuck) he steps closer silently. */
     private static final double LAG_MARGIN = 14.0D;
     private static final int REPOSITION_TICKS = 80;
@@ -264,6 +275,10 @@ public class SlendermanEntity extends PathfinderMob {
     private int teleportCheckTicks = 20 * 30 + this.random.nextInt(20 * 20 + 1);
     private boolean teleportArmed = false;
     private boolean armedCorner = false;
+    private int armedLeft = 0;
+    private int hopTicks = 0;
+    private int chaseTicks = 0;
+    private float deathSanityStart = 0.0F;
     private Vec3 cornerGoal = null;
     private int cornerTicks = 0;
     private int pathRetry = 0;
@@ -492,9 +507,10 @@ public class SlendermanEntity extends PathfinderMob {
         if (dist <= aggRange) this.aggression = Math.min(1.0F, this.aggression + AGGRESSION_RISE * AGG_RISE_MUL[this.stage]);
         else this.aggression = Math.max(0.0F, this.aggression - AGGRESSION_FALL);
         this.entityData.set(DATA_AGGRESSION, this.aggression);
-        if (this.aggression >= AGGRESSION_ON) this.tentGoal = true;
-        else if (this.tent > 0.02F && dist <= aggRange) this.tentGoal = true; // coming back while they retract: out again
-        else if (this.aggression < AGGRESSION_OFF) this.tentGoal = false;
+        // the tentacles come out when 60 of 100 sanity is lost and go back when it has fallen below 55
+        float lost = this.entityData.get(DATA_SANITY);
+        if (lost >= TENTACLE_SANITY) this.tentGoal = true;
+        else if (lost < TENTACLE_SANITY - 5.0F) this.tentGoal = false;
         this.updateTentacles(this.tentGoal);
         this.contactDamage(player, dist);
 
@@ -618,8 +634,10 @@ public class SlendermanEntity extends PathfinderMob {
     /**
      * Chasing while nobody looks at him (on every page). Returns true while he is walking.
      *  - a corner he has chosen: he walks there first;
-     *  - he always walks until he is inside the distance band of his stage (1-2 pages: 35-40 blocks, 3-4: 25-30,
-     *    5-6: 15-20, 7: 5-10) and walks faster the farther behind he is, so he never stays far away;
+     *  - he walks (only when there is a route to the player) until he is inside the distance band of his stage
+     *    (1-2 pages: 20-25 blocks, 3-4: 13-17, 5-6: 8-10, 7: 5-7) and walks faster the farther behind he is;
+     *  - inside a structure, or without a route to the player, he does not walk: he works out a spot and appears there;
+     *  - the player runs away: he appears closer instead of running after him;
      *  - pages 3-7: the player stands still and does not look: he walks right up behind his back;
      *  - no path (a 4 block tall mob needs a lot of free room) or stuck: he walks straight at the goal, and if that
      *    fails too he steps closer silently (he is not in the view of the player while this runs).
@@ -629,6 +647,24 @@ public class SlendermanEntity extends PathfinderMob {
         boolean close = st >= 3 && this.idleTicks >= STILL_TICKS;
         double wantMax = close ? CONTACT_DIST : BAND_MAX[st];
         double baseSpeed = WALK_SPEED * WALK_MOD[st];
+
+        // inside a structure, or no route to the player: he does not walk, he works out a spot and appears there
+        boolean indoors = this.playerIndoors(player);
+        if (indoors || this.hiding) {
+            this.cornerGoal = null;
+            this.getNavigation().stop();
+            if (dist > wantMax + 0.3D) {
+                if (autoTeleport && ++this.hopTicks >= HOP_TICKS) {
+                    this.hopTicks = 0;
+                    boolean ok = indoors ? this.hopInside(player, close) : this.teleportNear(player, TeleportKind.HUNT);
+                    if (!ok) this.hopTicks = HOP_TICKS - 20;      // no spot found: try again in a second
+                }
+            } else {
+                this.hopTicks = 0;
+            }
+            return false;
+        }
+        this.hopTicks = 0;
 
         if (this.cornerGoal != null) {
             if (--this.cornerTicks <= 0 || this.position().distanceTo(this.cornerGoal) < 1.5D) {
@@ -643,6 +679,15 @@ public class SlendermanEntity extends PathfinderMob {
             this.lagTicks = 0;
             this.stuckSeconds = 0;
             return false;
+        }
+        // the player runs away: he does not run after him, he appears closer (behind / beside the runner)
+        if (this.playerSpeed > RUN_SPEED && dist > wantMax + FLEE_GAP) {
+            if (autoTeleport && ++this.chaseTicks >= CHASE_TICKS) {
+                this.chaseTicks = 0;
+                if (this.teleportNear(player, TeleportKind.CHASE)) return false;
+            }
+        } else {
+            this.chaseTicks = 0;
         }
         double catchUp = 1.0D + Mth.clamp((dist - wantMax) / 12.0D, 0.0D, 1.5D);   // up to 2.5 times faster when far behind
         Vec3 goal = player.position();
@@ -879,66 +924,151 @@ public class SlendermanEntity extends PathfinderMob {
     // ------------------------------------------------------------------ teleport ability
 
     /**
-     * Every 30-50 s he rolls the chance of the current page. If it succeeds, he may use ONE teleport at the next
-     * fitting moment (so on 5-7 pages he does not teleport all the time). Returns true if he teleported.
+     * The teleport rolls. Time between two rolls and chance by pages: 1-4 pages every 30-50 s (1-2 pages 20 %, 3-4 pages
+     * 30 %), 5-6 pages every 15-20 s (40 %), 7 pages every 5-10 s (50 %). A successful roll teleports him at once while
+     * the player does not look at him (7 pages: also while he is looked at; 1-2 pages: also after a long stare).
+     * From 5 pages he also punishes a player who stands still for 15 s. Returns true if he teleported.
      */
     private boolean tryTeleportAbility(Player player, boolean seen, double dist) {
         if (!autoTeleport || this.action != ACTION_NONE || this.vanished) return false;
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+
+        // punishment: the player stands still for 15 s (and again every 15 s). A hundred-sided die decides, and the
+        // chance of "yes" is different every time. He appears 3-4 blocks in front of the player.
+        if (st >= 5 && this.idleTicks > 0 && this.idleTicks % PUNISH_TICKS == 0) {
+            int chance = 1 + this.random.nextInt(100);
+            if (this.random.nextInt(100) < chance && this.teleportNear(player, TeleportKind.PUNISH)) return true;
+        }
+
+        int cap = CHECK_MIN[st] + CHECK_RAND[st];
+        if (this.teleportCheckTicks > cap) this.teleportCheckTicks = cap;   // a new page: the shorter waiting time counts at once
         if (--this.teleportCheckTicks <= 0) {
-            this.teleportCheckTicks = TELEPORT_CHECK_MIN + this.random.nextInt(TELEPORT_CHECK_RANDOM + 1);
-            boolean indoors = this.playerIndoors(player);
-            float chance = TELEPORT_CHANCE[this.stage] * (indoors ? INDOOR_FACTOR : 1.0F);
-            this.teleportArmed = this.random.nextFloat() < Math.min(0.9F, chance);
-            // corners: mostly inside structures, sometimes outside (stages 3-7)
-            this.armedCorner = this.stage >= 3 && (indoors || this.random.nextFloat() < 0.25F);
+            this.teleportCheckTicks = CHECK_MIN[st] + this.random.nextInt(CHECK_RAND[st] + 1);
+            if (this.random.nextFloat() < TELEPORT_CHANCE[st]) {
+                this.teleportArmed = true;
+                this.armedLeft = ARMED_MAX_TICKS;
+            }
         }
         if (!this.teleportArmed) return false;
-        boolean used = this.useArmedTeleport(player, seen, dist);
-        if (used) this.teleportArmed = false;
-        return used;
+        if (--this.armedLeft <= 0) {
+            this.teleportArmed = false;
+            return false;
+        }
+        boolean mayNow = !seen || st >= 7 || (st <= 2 && this.observedTicks >= STARE_TICKS);
+        if (!mayNow) return false;
+        this.teleportArmed = false;
+        return this.abilityTeleport(player, seen, dist);
     }
 
-    private boolean useArmedTeleport(Player player, boolean seen, double dist) {
-        // 1) a corner: he appears behind it (or walks there) and waits for the player to turn
-        if (this.armedCorner) {
-            this.armedCorner = false;
+    /** a successful roll: where does he appear? Inside a structure he works out a spot there; outside it depends on the situation. */
+    private boolean abilityTeleport(Player player, boolean seen, double dist) {
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        if (this.playerIndoors(player)) {
+            return this.hopInside(player, false) || this.teleportNear(player, TeleportKind.AHEAD);
+        }
+        // the player runs: he steps into the way to the page (or in front of the runner)
+        if (st >= 3 && this.playerSpeed > RUN_SPEED) {
+            if (this.runsTowardPage(player) && this.blockPageWay(player)) return true;
+            if (this.teleportNear(player, TeleportKind.AHEAD)) return true;
+        }
+        if (st <= 2) {
+            if (this.idleTicks >= IDLE_TICKS && this.teleportNear(player, TeleportKind.AHEAD)) return true;
+            return this.teleportNear(player, TeleportKind.WATCH);
+        }
+        if (this.hiding && !seen && dist > HUNT_MIN_DIST && this.teleportNear(player, TeleportKind.HUNT)) return true;
+        // sometimes he walks to a spot behind a corner and waits there for the player to turn
+        if (!seen && this.random.nextFloat() < 0.25F) {
             Vec3 spot = this.findCornerSpot(player);
             if (spot != null) {
-                if (this.random.nextBoolean()) {
-                    float yaw = (float) (Mth.atan2(player.getZ() - spot.z, player.getX() - spot.x) * 57.29577951308232D) - 90.0F;
-                    this.relocate(spot.x, spot.y, spot.z, yaw);
-                    this.afterTeleport(player);
-                    return true;
-                }
                 this.cornerGoal = spot;
                 this.cornerTicks = 240;
-                this.teleportArmed = false;
                 return false;
             }
         }
-        // 2) the player runs: he steps into the way to the page (7 pages: in front of a runner anywhere)
-        if (this.stage >= 3 && this.playerSpeed > RUN_SPEED) {
-            if (this.runsTowardPage(player) && this.blockPageWay(player)) return true;
-            if (this.stage >= 7 && this.teleportNear(player, TeleportKind.AHEAD)) return true;
+        float r = this.random.nextFloat();
+        TeleportKind kind;
+        if (st <= 4) kind = r < 0.5F ? TeleportKind.MID : TeleportKind.AHEAD;
+        else kind = r < 0.40F ? TeleportKind.BEHIND : TeleportKind.AHEAD;   // 5-7 pages: behind and in front
+        return this.teleportNear(player, kind);
+    }
+
+    /**
+     * The player is inside a structure / a building / a cave: there is a roof (not just leaves) within 12 blocks above his head.
+     * Inside he does not walk, he teleports to spots he has worked out.
+     */
+    private boolean playerIndoors(Player player) {
+        return this.hasRoof(player.getX(), player.getEyeY(), player.getZ());
+    }
+
+    private boolean hasRoof(double x, double fromY, double z) {
+        int ix = Mth.floor(x);
+        int iz = Mth.floor(z);
+        int y0 = Mth.floor(fromY) + 1;
+        for (int dy = 0; dy < 12; dy++) {
+            BlockPos pos = new BlockPos(ix, y0 + dy, iz);
+            if (!this.level.hasChunkAt(pos)) return false;
+            BlockState state = this.level.getBlockState(pos);
+            if (state.isAir() || state.is(BlockTags.LEAVES)) continue;
+            if (!state.getCollisionShape(this.level, pos).isEmpty()) return true;
         }
-        // 3) the watcher (1-2 pages)
-        if (this.stage <= 2) {
-            double keep = KEEP_DIST[this.stage];
-            if (seen && this.observedTicks >= STARE_TICKS && this.teleportNear(player, TeleportKind.WATCH)) return true;
-            if (dist < keep * 0.55D && this.teleportNear(player, TeleportKind.WATCH)) return true;
-            if (this.idleTicks >= IDLE_TICKS && this.teleportNear(player, TeleportKind.AHEAD)) return true;
-            return false;
-        }
-        // 4) the player hides (high up / shut away): he appears next to him
-        if (this.hiding && !seen && dist > HUNT_MIN_DIST && this.teleportNear(player, TeleportKind.HUNT)) return true;
-        // 5) 5-7 pages: while the player does not look, he appears in front of him
-        if (this.stage >= 5 && !seen && dist > 3.5D && this.teleportNear(player, TeleportKind.AHEAD)) return true;
         return false;
     }
 
-    /** no sky above the player: inside a structure, a cave or a building. */
-    private boolean playerIndoors(Player player) {
-        return !this.level.canSeeSky(player.blockPosition().above());
+    /** a random distance a little closer than the band up to its far end (for "in front of / behind the player" teleports). */
+    private double aheadDistance() {
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        double lo = Math.max(2.5D, BAND_MIN[st] - 2.0D);
+        return lo + this.random.nextDouble() * (BAND_MAX[st] - lo);
+    }
+
+    /**
+     * A spot inside the structure of the player: it has a roof above it, free room for him (4 blocks high; 3 blocks is
+     * enough too), it lies in the distance band of his stage (a small room: closer and farther), and it is hidden from
+     * the eyes of the player when possible (a corner, behind a wall).
+     */
+    private Vec3 findStructureSpot(Player player) {
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        Vec3 eye = player.getEyePosition();
+        for (int attempt = 0; attempt < 90; attempt++) {
+            double lo = attempt < 45 ? BAND_MIN[st] : 2.5D;
+            double hi = attempt < 45 ? BAND_MAX[st] : BAND_MAX[st] + 6.0D;
+            double distance = lo + this.random.nextDouble() * (hi - lo);
+            double angle = this.random.nextDouble() * Math.PI * 2.0D;
+            double x = player.getX() + Math.cos(angle) * distance;
+            double z = player.getZ() + Math.sin(angle) * distance;
+            double y = this.findGround(x, z, player.getY(), (attempt % 2 == 0) ? 4.0D : 3.0D);
+            if (Double.isNaN(y)) continue;
+            if (!this.hasRoof(x, y + 1.0D, z)) continue;               // it has to be inside, not on the lawn
+            if (attempt < 70 && this.visibleFrom(eye, x, y, z)) continue;   // hidden spots first
+            return new Vec3(x, y, z);
+        }
+        return null;
+    }
+
+    /** the spot right behind the back of the player (2.4-3.6 blocks), 4 blocks high or 3. */
+    private Vec3 findBehindSpot(Player player) {
+        Vec3 look = player.getLookAngle();
+        double base = Math.atan2(look.z, look.x) + Math.PI;
+        for (int attempt = 0; attempt < 24; attempt++) {
+            double distance = CONTACT_DIST + 0.8D + this.random.nextDouble() * 1.2D;
+            double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * 70.0D);
+            double x = player.getX() + Math.cos(angle) * distance;
+            double z = player.getZ() + Math.sin(angle) * distance;
+            double y = this.findGround(x, z, player.getY(), attempt < 12 ? 4.0D : 3.0D);
+            if (!Double.isNaN(y)) return new Vec3(x, y, z);
+        }
+        return null;
+    }
+
+    /** inside a structure he appears at a computed spot (close = right behind the back of the player). */
+    private boolean hopInside(Player player, boolean close) {
+        Vec3 spot = close ? this.findBehindSpot(player) : null;
+        if (spot == null) spot = this.findStructureSpot(player);
+        if (spot == null) return false;
+        float yaw = (float) (Mth.atan2(player.getZ() - spot.z, player.getX() - spot.x) * 57.29577951308232D) - 90.0F;
+        this.relocate(spot.x, spot.y, spot.z, yaw);
+        this.afterTeleport(player);
+        return true;
     }
 
     /** a spot 4-12 blocks from the player, mostly ahead of him, that he cannot see from where he stands (behind a corner or a wall). */
@@ -1123,6 +1253,7 @@ public class SlendermanEntity extends PathfinderMob {
         this.deathVictim = player.getUUID();
         this.deathPhase = turn ? 1 : 2;
         this.deathTicks = 0;
+        this.deathSanityStart = SlenderSanity.get(player);
         this.entityData.set(DATA_DEATH, this.deathPhase);
         this.vanished = false;
         this.setInvisible(false);
@@ -1144,6 +1275,14 @@ public class SlendermanEntity extends PathfinderMob {
         this.faceToward(victim.position(), 60.0F);
         Vec3 eye = victim.getEyePosition();
         this.getLookControl().setLookAt(eye.x, eye.y, eye.z, 60.0F, 60.0F);
+        // during the turn the sanity rises evenly to 100 (the camera follows it), afterwards it stays at 100
+        float lostNow = SlenderSanity.MAX;
+        if (this.deathPhase == 1) {
+            lostNow = Mth.lerp(Mth.clamp((float) this.deathTicks / (float) DEATH_TURN_TICKS, 0.0F, 1.0F),
+                    this.deathSanityStart, SlenderSanity.MAX);
+        }
+        SlenderSanity.set(victim, lostNow);
+        this.entityData.set(DATA_SANITY, lostNow);
         if (++this.deathTicks < (this.deathPhase == 1 ? DEATH_TURN_TICKS : DEATH_BLACK_TICKS)) return;
         if (this.deathPhase == 1) {
             this.deathPhase = 2;
@@ -1172,7 +1311,7 @@ public class SlendermanEntity extends PathfinderMob {
 
     // ------------------------------------------------------------------ teleports
 
-    public enum TeleportKind { FAR, MID, CLOSE, VANISH, AHEAD, HUNT, BEHIND, WATCH }
+    public enum TeleportKind { FAR, MID, CLOSE, VANISH, AHEAD, HUNT, BEHIND, WATCH, PUNISH, CHASE }
 
     /** the creeping step: 2 blocks closer along the straight line to the player. */
     private boolean creepCloser(Player player, double maxStep, double keep) {
@@ -1206,32 +1345,43 @@ public class SlendermanEntity extends PathfinderMob {
         Vec3 look = player.getLookAngle();
         double baseAngle = Math.atan2(look.z, look.x);
         // in front of / behind / next to the player he may also appear in low rooms and structures (4 -> 3 -> 2 blocks of free height)
-        boolean tight = kind == TeleportKind.HUNT || kind == TeleportKind.AHEAD || kind == TeleportKind.BEHIND || kind == TeleportKind.CLOSE;
+        boolean tight = kind == TeleportKind.HUNT || kind == TeleportKind.AHEAD || kind == TeleportKind.BEHIND || kind == TeleportKind.CLOSE
+                || kind == TeleportKind.MID || kind == TeleportKind.PUNISH || kind == TeleportKind.CHASE;
         int attempts = tight ? 48 : 32;
         for (int attempt = 0; attempt < attempts; attempt++) {
             double distance, offsetDeg;
             switch (kind) {
                 case AHEAD -> {
-                    // anger: right in front of the player, 2-8 blocks away
-                    distance = 2.0D + this.random.nextDouble() * 6.0D;
+                    // in front of the player, at the distance of his stage
+                    distance = this.aheadDistance();
                     offsetDeg = (this.random.nextDouble() - 0.5D) * 70.0D;
                 }
                 case HUNT -> {
                     // the player hides: anywhere around them, even in a low room (4 -> 3 -> 2 blocks of free height)
-                    distance = 2.5D + this.random.nextDouble() * 2.5D;
+                    distance = this.aheadDistance();
                     offsetDeg = this.random.nextDouble() * 360.0D;
+                }
+                case PUNISH -> {
+                    // the punishment: 3-4 blocks in front of the player (later attempts: any side, a small room may have no spot in front)
+                    distance = 3.0D + this.random.nextDouble();
+                    offsetDeg = attempt < 24 ? (this.random.nextDouble() - 0.5D) * 50.0D : this.random.nextDouble() * 360.0D;
+                }
+                case CHASE -> {
+                    // the player runs away: he appears behind / beside the runner, at the distance of his stage
+                    distance = this.bandDistance();
+                    offsetDeg = 180.0D + (this.random.nextDouble() - 0.5D) * 140.0D;
                 }
                 case FAR -> {
                     distance = this.bandDistance();
                     offsetDeg = (this.random.nextDouble() - 0.5D) * 70.0D;
                 }
                 case MID -> {
-                    distance = 5.0D + this.random.nextDouble() * 5.0D;
+                    distance = this.bandDistance();
                     offsetDeg = (this.random.nextDouble() - 0.5D) * 60.0D;
                 }
                 case BEHIND -> {
-                    // right behind the player's back, 2.5-5 blocks away
-                    distance = 2.5D + this.random.nextDouble() * 2.5D;
+                    // behind the player's back, at the distance of his stage
+                    distance = this.aheadDistance();
                     offsetDeg = 180.0D + (this.random.nextDouble() - 0.5D) * 40.0D;
                 }
                 case WATCH -> {
@@ -1404,6 +1554,7 @@ public class SlendermanEntity extends PathfinderMob {
     public void onPageTaken(int count) {
         this.stage = Mth.clamp(count, 1, SlenderPages.TOTAL);
         this.ambushTicks = AMBUSH_EVERY[this.stage] - 20;
+        this.teleportCheckTicks = Math.min(this.teleportCheckTicks, CHECK_MIN[this.stage] + this.random.nextInt(CHECK_RAND[this.stage] + 1));
         this.watchTicks = 0;
         this.farTicks = 0;
         
