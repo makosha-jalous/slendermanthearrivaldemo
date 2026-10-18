@@ -27,7 +27,7 @@ import net.minecraft.world.phys.Vec3;
  */
 public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
     /** range of the sound in blocks. The engine's range is 16 * volume at the moment the sound starts. */
-    private static final float RANGE = 20.0F;
+    private static final float RANGE = 60.0F;
     private static final float START_VOLUME = RANGE / 16.0F;
     /** how much of the screen counts as "in view" (dot product with the view direction, 0.5 = 60 degrees to each side). */
     private static final double VIEW_COS = 0.5D;
