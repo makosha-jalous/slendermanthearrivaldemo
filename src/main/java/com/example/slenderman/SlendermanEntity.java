@@ -180,8 +180,10 @@ public class SlendermanEntity extends PathfinderMob {
     private static final int IDLE_TICKS = 20 * 30;
     /** pages 3-7: the player stands still and does not look at him for this long (6 s) -> he walks right up behind his back. */
     private static final int STILL_TICKS = 20 * 6;
-    /** how close he stands "right behind" the player (blocks, centre to centre). Touching him (about 0.7) kills. */
-    private static final double CONTACT_DIST = 1.6D;
+    /** how close he stands "right behind" the player (blocks, centre to centre). Touching him (hitboxes, about 0.7) kills; he never comes closer than about 2 blocks himself. */
+    private static final double CONTACT_DIST = 2.2D;
+    /** no teleport ever puts him closer than this to the player (blocks, horizontal): the hitboxes must never touch by a teleport. */
+    private static final double TELEPORT_MIN_DIST = 2.0D;
     /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 20-25, 3-4: 13-17, 5-6: 8-10, 7: 5-7. */
     private static final double[] BAND_MIN = {20.0, 20.0, 20.0, 13.0, 13.0,  8.0,  8.0,  5.0,  5.0};
     private static final double[] BAND_MAX = {25.0, 25.0, 25.0, 17.0, 17.0, 10.0, 10.0,  7.0,  7.0};
@@ -647,6 +649,7 @@ public class SlendermanEntity extends PathfinderMob {
         int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
         boolean close = st >= 3 && this.idleTicks >= STILL_TICKS;
         double wantMax = close ? CONTACT_DIST : BAND_MAX[st];
+        double tol = close ? 0.1D : 0.3D;   // right behind the player he stops at about 2.2 blocks, never closer
         double baseSpeed = WALK_SPEED * WALK_MOD[st];
 
         // inside a structure, or no route to the player: he does not walk, he works out a spot and appears there
@@ -654,7 +657,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (indoors || this.hiding) {
             this.cornerGoal = null;
             this.getNavigation().stop();
-            if (dist > wantMax + 0.3D) {
+            if (dist > wantMax + tol) {
                 if (autoTeleport && ++this.hopTicks >= HOP_TICKS) {
                     this.hopTicks = 0;
                     boolean ok = indoors ? this.hopInside(player, close) : this.teleportNear(player, TeleportKind.HUNT);
@@ -675,7 +678,7 @@ public class SlendermanEntity extends PathfinderMob {
                 return true;
             }
         }
-        if (dist <= wantMax + 0.3D) {
+        if (dist <= wantMax + tol) {
             this.getNavigation().stop();
             this.lagTicks = 0;
             this.stuckSeconds = 0;
@@ -853,6 +856,7 @@ public class SlendermanEntity extends PathfinderMob {
             double side = (this.random.nextDouble() - 0.5D) * 2.0D;
             double x = player.getX() + dx * away - dz * side;
             double z = player.getZ() + dz * away + dx * side;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
             double y = this.findGround(x, z, player.getY());
             if (Double.isNaN(y)) continue;
             float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
@@ -1015,6 +1019,13 @@ public class SlendermanEntity extends PathfinderMob {
         return false;
     }
 
+    /** a teleport target that would be closer than TELEPORT_MIN_DIST to the player (horizontal distance). */
+    private boolean tooCloseToPlayer(Player player, double x, double z) {
+        double dx = x - player.getX();
+        double dz = z - player.getZ();
+        return dx * dx + dz * dz < TELEPORT_MIN_DIST * TELEPORT_MIN_DIST;
+    }
+
     /** a random distance a little closer than the band up to its far end (for "in front of / behind the player" teleports). */
     private double aheadDistance() {
         int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
@@ -1037,6 +1048,7 @@ public class SlendermanEntity extends PathfinderMob {
             double angle = this.random.nextDouble() * Math.PI * 2.0D;
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
             double y = this.findGround(x, z, player.getY(), (attempt % 2 == 0) ? 4.0D : 3.0D);
             if (Double.isNaN(y)) continue;
             if (!this.hasRoof(x, y + 1.0D, z)) continue;               // it has to be inside, not on the lawn
@@ -1046,15 +1058,16 @@ public class SlendermanEntity extends PathfinderMob {
         return null;
     }
 
-    /** the spot right behind the back of the player (2.4-3.6 blocks), 4 blocks high or 3. */
+    /** the spot right behind the back of the player (2.6-3.8 blocks), 4 blocks high or 3. */
     private Vec3 findBehindSpot(Player player) {
         Vec3 look = player.getLookAngle();
         double base = Math.atan2(look.z, look.x) + Math.PI;
         for (int attempt = 0; attempt < 24; attempt++) {
-            double distance = CONTACT_DIST + 0.8D + this.random.nextDouble() * 1.2D;
+            double distance = CONTACT_DIST + 0.4D + this.random.nextDouble() * 1.2D;
             double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * 70.0D);
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
             double y = this.findGround(x, z, player.getY(), attempt < 12 ? 4.0D : 3.0D);
             if (!Double.isNaN(y)) return new Vec3(x, y, z);
         }
@@ -1336,6 +1349,7 @@ public class SlendermanEntity extends PathfinderMob {
             double sz = dx * sin + dz * cos;
             double x = this.getX() + sx * step;
             double z = this.getZ() + sz * step;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
             double y = this.findGround(x, z, this.getY());
             if (Double.isNaN(y)) continue;
             float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
@@ -1395,7 +1409,7 @@ public class SlendermanEntity extends PathfinderMob {
                     offsetDeg = (this.random.nextDouble() - 0.5D) * 110.0D;
                 }
                 case CLOSE -> {
-                    distance = 2.0D + this.random.nextDouble() * 1.0D;
+                    distance = 2.2D + this.random.nextDouble() * 0.8D;      // 2.2-3.0 blocks, never closer
                     offsetDeg = (this.random.nextDouble() - 0.5D) * 14.0D;
                 }
                 default -> {
@@ -1406,6 +1420,7 @@ public class SlendermanEntity extends PathfinderMob {
             double angle = baseAngle + Math.toRadians(offsetDeg);
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
             double need = tight ? (attempt < 16 ? 4.0D : (attempt < 32 ? 3.0D : 2.0D)) : 4.0D;
             double y = this.findGround(x, z, player.getY(), need);
             if (Double.isNaN(y)) continue;
