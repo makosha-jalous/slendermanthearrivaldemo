@@ -2,12 +2,20 @@ package com.example.slenderman.client;
 
 import com.example.slenderman.SlendermanEntity;
 import com.example.slenderman.SlendermanMod;
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiComponent;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import java.util.Random;
+
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.ViewportEvent;
@@ -29,6 +37,12 @@ public final class DeathSequenceClient {
     private static float startYaw, startPitch;
     private static boolean gainChanged = false;
     private static int echoTick = 0;
+    private static long noiseStartMs = 0L;
+    private static DynamicTexture noise;
+    private static ResourceLocation noiseLoc;
+    private static long lastNoiseMs = 0L;
+    private static final Random NOISE_RND = new Random();
+    private static final int NOISE_TEX = 256;
 
     private DeathSequenceClient() {}
 
@@ -93,9 +107,11 @@ public final class DeathSequenceClient {
                 startPitch = mc.player.getXRot();
             }
             if (current == 2) {
-                // everything is cut off; a light echo is left (the volume stutters down)
-                mc.getSoundManager().stop();
+                // everything is cut off at once; a light echo of the rising sounds is left (the volume stutters down).
+                // Nothing is stopped for good (no SoundManager.stop()): the loops of other mods (camera!) keep their
+                // state and simply go on after the scene.
                 echoTick = 0;
+                noiseStartMs = System.currentTimeMillis();
             }
             if (current == 0) restoreGain();
         } else if (current != 0) {
@@ -141,10 +157,73 @@ public final class DeathSequenceClient {
         e.setPitch(a[1]);
     }
 
+    /**
+     * The black screen (drawn after ALL overlays, so nothing shows through) with the camera noise on it:
+     * at the very start a silent flash of noise, then a light flickering noise, the screen stays black.
+     */
     @SubscribeEvent
     public static void onGuiPost(RenderGuiEvent.Post e) {
         if (phase != 2) return;
-        GuiComponent.fill(e.getPoseStack(), 0, 0,
-                e.getWindow().getGuiScaledWidth(), e.getWindow().getGuiScaledHeight(), 0xFF000000);
+        int w = e.getWindow().getGuiScaledWidth();
+        int h = e.getWindow().getGuiScaledHeight();
+        PoseStack ps = e.getPoseStack();
+        GuiComponent.fill(ps, 0, 0, w, h, 0xFF000000);
+
+        long now = System.currentTimeMillis();
+        long t = now - noiseStartMs;
+        float alpha;
+        if (t < 260L) {
+            alpha = 0.88F + 0.08F * NOISE_RND.nextFloat();                         // the flash
+        } else if (t < 520L) {
+            float k = (t - 260L) / 260F;                                           // flash dies down to the light level
+            alpha = Mth.lerp(k, 0.60F, 0.12F) * (0.8F + 0.4F * NOISE_RND.nextFloat());
+        } else {
+            // light noise that flickers: the level changes every 70 ms, now and then a stronger flicker
+            long bucket = now / 70L;
+            Random r = new Random(bucket * 7919L);
+            alpha = 0.05F + 0.09F * r.nextFloat();
+            if (r.nextFloat() < 0.12F) alpha += 0.08F;
+        }
+        drawNoise(ps, w, h, Mth.clamp(alpha, 0F, 0.97F));
+    }
+
+    private static void drawNoise(PoseStack ps, int w, int h, float alpha) {
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            if (noise == null) {
+                noise = new DynamicTexture(NOISE_TEX, NOISE_TEX, false);
+                noise.setFilter(false, false);
+                noiseLoc = mc.getTextureManager().register("slenderman_death_noise", noise);
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastNoiseMs > 40L) {
+                lastNoiseMs = now;
+                NativeImage img = noise.getPixels();
+                if (img != null) {
+                    for (int y = 0; y < NOISE_TEX; y++) {
+                        for (int x = 0; x < NOISE_TEX; x++) {
+                            int v = NOISE_RND.nextInt(256);
+                            int a = NOISE_RND.nextInt(256);
+                            img.setPixelRGBA(x, y, (a << 24) | (v << 16) | (v << 8) | v);
+                        }
+                    }
+                    noise.upload();
+                }
+            }
+            double g = mc.getWindow().getGuiScale();
+            int regionW = Math.max(1, (int) Math.round(w * g));
+            int regionH = Math.max(1, (int) Math.round(h * g));
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.setShader(GameRenderer::getPositionTexShader);
+            RenderSystem.setShaderColor(1F, 1F, 1F, alpha);
+            RenderSystem.setShaderTexture(0, noiseLoc);
+            GuiComponent.blit(ps, 0, 0, w, h, NOISE_RND.nextInt(NOISE_TEX), NOISE_RND.nextInt(NOISE_TEX),
+                    regionW, regionH, NOISE_TEX, NOISE_TEX);
+            RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+            RenderSystem.disableBlend();
+        } catch (Throwable ignored) {
+            RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+        }
     }
 }
