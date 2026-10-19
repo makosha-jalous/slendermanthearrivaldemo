@@ -24,8 +24,21 @@ public final class SlenderSanity {
     public static final double FAR_DIST = 40.0D;
     public static final double FAR_SECONDS = 60.0D;
 
-    /** recovery: from 100 back to 0 in 15 s (a smaller loss comes back faster, in proportion). */
+    /** recovery (looking away): a loss close to 100 comes back in 15 s, a small loss in about 10 s. */
+    public static final double RECOVER_SECONDS_SMALL = 10.0D;
+    public static final double RECOVER_SECONDS_FULL = 15.0D;
+    /** kept for older code: the speed of a full recovery from 100. */
     public static final float RECOVER_PER_TICK = MAX / 300.0F;
+
+    /** how many seconds the recovery takes from this loss (10 s at a tiny loss ... 15 s at 100). */
+    public static double recoverSeconds(float loss) {
+        return Mth.lerp(Mth.clamp(loss / MAX, 0.0F, 1.0F), RECOVER_SECONDS_SMALL, RECOVER_SECONDS_FULL);
+    }
+
+    /** loss points per tick for a recovery that starts at this loss (constant until it reaches 0). */
+    public static float recoverPerTick(float loss) {
+        return (float) (loss / (recoverSeconds(loss) * 20.0D));
+    }
 
     private SlenderSanity() {}
 

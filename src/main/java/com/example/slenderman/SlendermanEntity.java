@@ -279,6 +279,7 @@ public class SlendermanEntity extends PathfinderMob {
     private int hopTicks = 0;
     private int chaseTicks = 0;
     private float deathSanityStart = 0.0F;
+    private float recoverRate = 0.0F;
     private Vec3 cornerGoal = null;
     private int cornerTicks = 0;
     private int pathRetry = 0;
@@ -1182,12 +1183,16 @@ public class SlendermanEntity extends PathfinderMob {
         if (looking || behind) {
             value += SlenderSanity.lossPerTick(dist);
             this.sanityDelay = SANITY_RECOVER_DELAY;
+            this.recoverRate = 0.0F;
         } else if (this.sanityDelay > 0) {
             this.sanityDelay--;
         } else {
-            value -= SlenderSanity.RECOVER_PER_TICK;
+            // the speed is fixed when the recovery starts: 15 s from a loss near 100, about 10 s from a small one
+            if (this.recoverRate <= 0.0F) this.recoverRate = SlenderSanity.recoverPerTick(value);
+            value -= this.recoverRate;
         }
         value = Mth.clamp(value, 0.0F, SlenderSanity.MAX);
+        if (value <= 0.0F) this.recoverRate = 0.0F;
         SlenderSanity.set(player, value);
         this.entityData.set(DATA_SANITY, value);
         if (value >= SlenderSanity.MAX) this.sanityRush = true;
