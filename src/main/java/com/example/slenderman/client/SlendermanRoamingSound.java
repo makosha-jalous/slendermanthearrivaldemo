@@ -38,7 +38,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
      * The sound category of the screamers (dramatic1a/b/c): they are NOT cut off by the black screen of the death scene,
      * every other category is (see DeathSequenceClient).
      */
-    public static final SoundSource SCREAM_SOURCE = SoundSource.VOICES;
+    public static final SoundSource SCREAM_SOURCE = SoundSource.VOICE;
     /** the screamer that was played last (the death scene checks if it is still running). */
     public static SoundInstance lastScream;
 
