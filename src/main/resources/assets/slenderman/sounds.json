@@ -1,182 +1,247 @@
 {
-  "roaming": {
-    "category": "hostile",
+  "static_medium": {
     "sounds": [
-      {
-        "name": "slenderman:roaming"
-      }
+      "slendercam:staticmedium"
     ]
   },
-  "dramatic1a": {
-    "category": "hostile",
+  "static_medium_piece": {
     "sounds": [
-      {
-        "name": "slenderman:dramatic1a"
-      }
+      "slendercam:staticmedium_p01",
+      "slendercam:staticmedium_p02",
+      "slendercam:staticmedium_p03",
+      "slendercam:staticmedium_p04",
+      "slendercam:staticmedium_p05",
+      "slendercam:staticmedium_p06",
+      "slendercam:staticmedium_p07",
+      "slendercam:staticmedium_p08",
+      "slendercam:staticmedium_p09",
+      "slendercam:staticmedium_p10",
+      "slendercam:staticmedium_p11",
+      "slendercam:staticmedium_p12",
+      "slendercam:staticmedium_p13",
+      "slendercam:staticmedium_p14",
+      "slendercam:staticmedium_p15",
+      "slendercam:staticmedium_p16",
+      "slendercam:staticmedium_p17",
+      "slendercam:staticmedium_p18",
+      "slendercam:staticmedium_p19",
+      "slendercam:staticmedium_p20",
+      "slendercam:staticmedium_p21",
+      "slendercam:staticmedium_p22",
+      "slendercam:staticmedium_p23",
+      "slendercam:staticmedium_p24",
+      "slendercam:staticmedium_p25",
+      "slendercam:staticmedium_p26",
+      "slendercam:staticmedium_p27",
+      "slendercam:staticmedium_p28",
+      "slendercam:staticmedium_p29",
+      "slendercam:staticmedium_p30",
+      "slendercam:staticmedium_p31",
+      "slendercam:staticmedium_p32",
+      "slendercam:staticmedium_p33",
+      "slendercam:staticmedium_p34",
+      "slendercam:staticmedium_p35",
+      "slendercam:staticmedium_p36",
+      "slendercam:staticmedium_p37",
+      "slendercam:staticmedium_p38",
+      "slendercam:staticmedium_p39",
+      "slendercam:staticmedium_p40",
+      "slendercam:staticmedium_p41",
+      "slendercam:staticmedium_p42",
+      "slendercam:staticmedium_p43",
+      "slendercam:staticmedium_p44",
+      "slendercam:staticmedium_p45",
+      "slendercam:staticmedium_p46",
+      "slendercam:staticmedium_p47",
+      "slendercam:staticmedium_p48",
+      "slendercam:staticmedium_p49",
+      "slendercam:staticmedium_p50",
+      "slendercam:staticmedium_p51",
+      "slendercam:staticmedium_p52",
+      "slendercam:staticmedium_p53",
+      "slendercam:staticmedium_p54",
+      "slendercam:staticmedium_p55",
+      "slendercam:staticmedium_p56",
+      "slendercam:staticmedium_p57",
+      "slendercam:staticmedium_p58",
+      "slendercam:staticmedium_p59",
+      "slendercam:staticmedium_p60",
+      "slendercam:staticmedium_p61",
+      "slendercam:staticmedium_p62",
+      "slendercam:staticmedium_p63"
     ]
   },
-  "dramatic1b": {
-    "category": "hostile",
+  "static_light": {
     "sounds": [
-      {
-        "name": "slenderman:dramatic1b"
-      }
+      "slendercam:staticlight001",
+      "slendercam:staticlight002",
+      "slendercam:staticlight003",
+      "slendercam:staticlight004",
+      "slendercam:staticlight005",
+      "slendercam:staticlight006",
+      "slendercam:staticlight007",
+      "slendercam:staticlight008",
+      "slendercam:staticlight009",
+      "slendercam:staticlight010",
+      "slendercam:staticlight011",
+      "slendercam:staticlight012",
+      "slendercam:staticlight013",
+      "slendercam:staticlight014",
+      "slendercam:staticlight015",
+      "slendercam:staticlight016",
+      "slendercam:staticlight017",
+      "slendercam:staticlight018",
+      "slendercam:staticlight019",
+      "slendercam:staticlight020",
+      "slendercam:staticlight021",
+      "slendercam:staticlight022",
+      "slendercam:staticlight023",
+      "slendercam:staticlight024",
+      "slendercam:staticlight025",
+      "slendercam:staticlight026",
+      "slendercam:staticlight027",
+      "slendercam:staticlight028",
+      "slendercam:staticlight029",
+      "slendercam:staticlight030",
+      "slendercam:staticlight031",
+      "slendercam:staticlight032",
+      "slendercam:staticlight033",
+      "slendercam:staticlight034",
+      "slendercam:staticlight035",
+      "slendercam:staticlight036",
+      "slendercam:staticlight037",
+      "slendercam:staticlight038",
+      "slendercam:staticlight039",
+      "slendercam:staticlight040",
+      "slendercam:staticlight041",
+      "slendercam:staticlight042",
+      "slendercam:staticlight043",
+      "slendercam:staticlight044",
+      "slendercam:staticlight045",
+      "slendercam:staticlight046",
+      "slendercam:staticlight047",
+      "slendercam:staticlight048",
+      "slendercam:staticlight049",
+      "slendercam:staticlight050",
+      "slendercam:staticlight051",
+      "slendercam:staticlight052",
+      "slendercam:staticlight053",
+      "slendercam:staticlight054",
+      "slendercam:staticlight055",
+      "slendercam:staticlight056",
+      "slendercam:staticlight057",
+      "slendercam:staticlight058",
+      "slendercam:staticlight059",
+      "slendercam:staticlight060",
+      "slendercam:staticlight061",
+      "slendercam:staticlight062",
+      "slendercam:staticlight063",
+      "slendercam:staticlight064",
+      "slendercam:staticlight065",
+      "slendercam:staticlight066",
+      "slendercam:staticlight067",
+      "slendercam:staticlight068",
+      "slendercam:staticlight069",
+      "slendercam:staticlight070",
+      "slendercam:staticlight071",
+      "slendercam:staticlight072",
+      "slendercam:staticlight073",
+      "slendercam:staticlight074",
+      "slendercam:staticlight075",
+      "slendercam:staticlight076",
+      "slendercam:staticlight077",
+      "slendercam:staticlight078",
+      "slendercam:staticlight079",
+      "slendercam:staticlight080",
+      "slendercam:staticlight081",
+      "slendercam:staticlight082",
+      "slendercam:staticlight083",
+      "slendercam:staticlight084",
+      "slendercam:staticlight085",
+      "slendercam:staticlight086",
+      "slendercam:staticlight087",
+      "slendercam:staticlight088",
+      "slendercam:staticlight089",
+      "slendercam:staticlight090",
+      "slendercam:staticlight091",
+      "slendercam:staticlight092",
+      "slendercam:staticlight093",
+      "slendercam:staticlight094",
+      "slendercam:staticlight095",
+      "slendercam:staticlight096",
+      "slendercam:staticlight097",
+      "slendercam:staticlight098",
+      "slendercam:staticlight099",
+      "slendercam:staticlight100",
+      "slendercam:staticlight101",
+      "slendercam:staticlight102",
+      "slendercam:staticlight103",
+      "slendercam:staticlight104",
+      "slendercam:staticlight105",
+      "slendercam:staticlight106",
+      "slendercam:staticlight107",
+      "slendercam:staticlight108",
+      "slendercam:staticlight109",
+      "slendercam:staticlight110",
+      "slendercam:staticlight111",
+      "slendercam:staticlight112",
+      "slendercam:staticlight113"
     ]
   },
-  "dramatic1c": {
-    "category": "hostile",
+  "static_heavy": {
     "sounds": [
-      {
-        "name": "slenderman:dramatic1c"
-      }
+      "slendercam:staticheavy"
     ]
   },
-  "sight1a": {
-    "category": "hostile",
+  "static_glitch1": {
     "sounds": [
-      {
-        "name": "slenderman:sight1a"
-      }
+      "slendercam:staticglitch"
     ]
   },
-  "sight1b": {
-    "category": "hostile",
+  "static_glitch2": {
     "sounds": [
-      {
-        "name": "slenderman:sight1b"
-      }
+      "slendercam:staticglitch2"
     ]
   },
-  "sight1c": {
-    "category": "hostile",
+  "static_glitch3": {
     "sounds": [
-      {
-        "name": "slenderman:sight1c"
-      }
+      "slendercam:staticglitch3"
     ]
   },
-  "sight1d": {
-    "category": "hostile",
+  "static_glitch4": {
     "sounds": [
-      {
-        "name": "slenderman:sight1d"
-      }
+      "slendercam:staticglitch4"
     ]
   },
-  "sight2": {
-    "category": "hostile",
+  "teleport": {
     "sounds": [
-      {
-        "name": "slenderman:sight2"
-      }
+      "slendercam:teleport"
     ]
   },
-  "sight2a": {
-    "category": "hostile",
+  "breathing": {
     "sounds": [
-      {
-        "name": "slenderman:sight2a"
-      }
+      "slendercam:breathing"
     ]
   },
-  "sight3": {
-    "category": "hostile",
+  "zoom_on": {
     "sounds": [
-      {
-        "name": "slenderman:sight3"
-      }
+      "slendercam:zoomon"
     ]
   },
-  "sight3a": {
-    "category": "hostile",
+  "zoom_off": {
     "sounds": [
-      {
-        "name": "slenderman:sight3a"
-      }
+      "slendercam:zoomoff"
     ]
   },
-  "sight3b": {
-    "category": "hostile",
+  "glitch_short": {
     "sounds": [
-      {
-        "name": "slenderman:sight3b"
-      }
-    ]
-  },
-  "sight4a": {
-    "category": "hostile",
-    "sounds": [
-      {
-        "name": "slenderman:sight4a"
-      }
-    ]
-  },
-  "sight4b": {
-    "category": "hostile",
-    "sounds": [
-      {
-        "name": "slenderman:sight4b"
-      }
-    ]
-  },
-  "pagegrab": {
-    "category": "players",
-    "sounds": [
-      {
-        "name": "slenderman:pagegrab",
-        "stream": false,
-        "preload": true
-      },
-      {
-        "name": "slenderman:pagegrab1",
-        "stream": false,
-        "preload": true
-      },
-      {
-        "name": "slenderman:pagegrab2",
-        "stream": false,
-        "preload": true
-      }
-    ]
-  },
-  "page_ambient_1_2": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:page1-2",
-        "stream": false,
-        "preload": true
-      }
-    ]
-  },
-  "page_ambient_3_4": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:page3-4",
-        "stream": false,
-        "preload": true
-      }
-    ]
-  },
-  "page_ambient_5_6": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:page5-6",
-        "stream": false,
-        "preload": true
-      }
-    ]
-  },
-  "page_ambient_7": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:page7",
-        "stream": false,
-        "preload": true
-      }
+      "slendercam:shortglitch",
+      "slendercam:shortglitch1",
+      "slendercam:shortglitch2",
+      "slendercam:shortglitch3",
+      "slendercam:shortglitch4",
+      "slendercam:shortglitch5",
+      "slendercam:shortglitch6"
     ]
   }
 }
