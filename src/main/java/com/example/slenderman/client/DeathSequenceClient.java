@@ -4,10 +4,20 @@ import com.example.slenderman.SlendermanEntity;
 import com.example.slenderman.SlendermanMod;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.math.Matrix4f;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiComponent;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.client.sounds.SoundManager;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundSource;
@@ -27,7 +37,12 @@ import net.minecraftforge.fml.common.Mod;
 /**
  * Client side of the death scene (the server runs it, see SlendermanEntity.getDeathPhase()):
  *  - phase 1: the view turns to his face in exactly 3 s; the mouse has no effect (the view is set absolutely);
- *  - phase 2: sharp black screen for 2 s; all sounds are cut off and only a light echo fades out.
+ *  - phase 2: sharp black screen for 2 s; every sound is cut off EXCEPT the screamers (dramatic1a/b/c), which play to
+ *             the end; when no screamer is playing a light echo fades out;
+ *  - phase 3: the portrait (3 s): Slenderman to the chest on black, a dirty green glow behind his head, the head
+ *             almost black. Static Medium stutters in pieces, Static Heavy plays in chopped pieces of 80-100 ms with no
+ *             pauses, and the picture twitches with every piece. (The sounds are the ones of the slendercam mod.)
+ *  - phase 4: black again, every sound dies away; then the real Minecraft death screen.
  */
 @Mod.EventBusSubscriber(modid = SlendermanMod.ID, value = Dist.CLIENT)
 public final class DeathSequenceClient {
@@ -43,6 +58,19 @@ public final class DeathSequenceClient {
     private static long lastNoiseMs = 0L;
     private static final Random NOISE_RND = new Random();
     private static final int NOISE_TEX = 256;
+
+    // ---- portrait ----
+    /** size of the portrait: pixels per block (as a share of the screen height) and where the top of his head is (share of the height). */
+    private static final float PORTRAIT_SCALE = 0.60F;
+    private static final float PORTRAIT_TOP = 0.08F;
+    /** where the glow sits (share of the height): the head. */
+    private static final float PORTRAIT_GLOW_Y = 0.27F;
+    private static final Random FX_RND = new Random();
+    private static SoundEvent mediumPiece, heavyLoop;
+    private static boolean dramaticActive = false;
+    private static long mediumNextMs = 0L, heavyStopMs = 0L;
+    private static SimpleSoundInstance heavyInst;
+    private static float twX, twY, twMouse, glowFlick = 1.0F;
 
     private DeathSequenceClient() {}
 
@@ -106,14 +134,29 @@ public final class DeathSequenceClient {
                 startYaw = mc.player.getYRot();
                 startPitch = mc.player.getXRot();
             }
-            if (current == 2) {
-                // everything is cut off at once; a light echo of the rising sounds is left (the volume stutters down).
-                // Nothing is stopped for good (no SoundManager.stop()): the loops of other mods (camera!) keep their
-                // state and simply go on after the scene.
+            if (current == 2 && old < 2) {
+                // everything is cut off at once, EXCEPT the screamers (they have their own sound category and play to the
+                // end). When no screamer is playing, a light echo of the rising sounds is left (the volume stutters down).
+                silenceAll();
+                dramaticActive = isScreamPlaying();
                 echoTick = 0;
                 noiseStartMs = System.currentTimeMillis();
             }
-            if (current == 0) restoreGain();
+            if (current == 3) {
+                restoreGain();                    // the echo is over: the portrait has its own sounds
+                mediumNextMs = 0L;
+                heavyStopMs = 0L;
+                stopHeavy();
+                newTwitch();
+            }
+            if (current == 4) {
+                stopHeavy();                      // black again: everything dies away
+            }
+            if (current == 0) {
+                stopHeavy();
+                restoreGain();
+                resetRoamingSounds(mc);
+            }
         } else if (current != 0) {
             ticks++;
         }
@@ -127,7 +170,13 @@ public final class DeathSequenceClient {
             mc.player.yRotO = a[0];
             mc.player.xRotO = a[1];
         }
-        if (phase == 2) {
+        if (phase == 4) {
+            // everything dies away
+            float master = mc.options.getSoundSourceVolume(SoundSource.MASTER);
+            float k = 1.0F - Mth.clamp((ticks + 1) / (float) SlendermanEntity.DEATH_END_TICKS, 0.0F, 1.0F);
+            setGain(master * k);
+        }
+        if (phase == 2 && !dramaticActive) {
             // echo: repeats that get quieter and quieter
             echoTick++;
             float g = 0.0F;
@@ -140,10 +189,90 @@ public final class DeathSequenceClient {
         }
     }
 
+    /** stops every sound except the screamers (they are in the category VOICES). */
+    private static void silenceAll() {
+        try {
+            SoundManager sm = Minecraft.getInstance().getSoundManager();
+            for (SoundSource src : SoundSource.values()) {
+                if (src == SlendermanRoamingSound.SCREAM_SOURCE) continue;
+                sm.stop(null, src);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean isScreamPlaying() {
+        try {
+            SoundInstance inst = SlendermanRoamingSound.lastScream;
+            return inst != null && Minecraft.getInstance().getSoundManager().isActive(inst);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** the roaming loops were stopped from outside: let every Slenderman start a fresh one when it is needed. */
+    private static void resetRoamingSounds(Minecraft mc) {
+        if (mc.level == null) return;
+        for (Entity en : mc.level.entitiesForRendering()) {
+            if (en instanceof SlendermanEntity s) s.roamingSound = null;
+        }
+    }
+
+    private static void newTwitch() {
+        twX = (FX_RND.nextFloat() - 0.5F) * 0.050F;
+        twY = (FX_RND.nextFloat() - 0.5F) * 0.040F;
+        twMouse = (FX_RND.nextFloat() - 0.5F) * 30.0F;
+        glowFlick = 0.80F + 0.20F * FX_RND.nextFloat();
+    }
+
+    private static void stopHeavy() {
+        if (heavyInst == null) return;
+        try {
+            Minecraft.getInstance().getSoundManager().stop(heavyInst);
+        } catch (Throwable ignored) {
+        }
+        heavyInst = null;
+    }
+
+    /**
+     * The sounds of the portrait, checked every rendered frame (the pieces are only 80-160 ms long):
+     * Static Medium in pieces (one after another, 125-160 ms) and Static Heavy in chopped pieces of 80-100 ms, no
+     * pauses; every Heavy piece also gives the picture a new twitch.
+     */
+    @SubscribeEvent
+    public static void onRenderTick(TickEvent.RenderTickEvent e) {
+        if (e.phase != TickEvent.Phase.START) return;
+        if (phase != 3) {
+            if (heavyInst != null) stopHeavy();
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        SoundManager sm = mc.getSoundManager();
+        long now = System.currentTimeMillis();
+        try {
+            if (mediumPiece == null) mediumPiece = new SoundEvent(new ResourceLocation("slendercam", "static_medium_piece"));
+            if (heavyLoop == null) heavyLoop = new SoundEvent(new ResourceLocation("slendercam", "static_heavy"));
+            if (mediumNextMs == 0L || now - mediumNextMs > 400L) mediumNextMs = now;
+            if (now >= mediumNextMs) {
+                sm.play(SimpleSoundInstance.forUI(mediumPiece, 0.97F + FX_RND.nextFloat() * 0.06F, 1.0F));
+                mediumNextMs = now + 125L + FX_RND.nextInt(36);
+            }
+            if (heavyInst == null || now >= heavyStopMs) {
+                if (heavyInst != null) sm.stop(heavyInst);
+                heavyInst = SimpleSoundInstance.forUI(heavyLoop, 0.90F + FX_RND.nextFloat() * 0.25F, 1.0F);
+                sm.play(heavyInst);
+                heavyStopMs = now + 80L + FX_RND.nextInt(21);       // 80-100 ms, the next one follows at once
+                newTwitch();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut e) {
         phase = 0;
         killer = null;
+        stopHeavy();
         restoreGain();
     }
 
@@ -163,11 +292,17 @@ public final class DeathSequenceClient {
      */
     @SubscribeEvent
     public static void onGuiPost(RenderGuiEvent.Post e) {
-        if (phase != 2) return;
+        if (phase < 2) return;
         int w = e.getWindow().getGuiScaledWidth();
         int h = e.getWindow().getGuiScaledHeight();
         PoseStack ps = e.getPoseStack();
         GuiComponent.fill(ps, 0, 0, w, h, 0xFF000000);
+        if (phase == 4) return;                       // the last black screen: nothing but black
+        if (phase == 3) {
+            drawPortrait(ps, w, h);
+            drawNoise(ps, w, h, 0.10F);
+            return;
+        }
 
         long now = System.currentTimeMillis();
         long t = now - noiseStartMs;
@@ -185,6 +320,48 @@ public final class DeathSequenceClient {
             if (r.nextFloat() < 0.12F) alpha += 0.08F;
         }
         drawNoise(ps, w, h, Mth.clamp(alpha, 0F, 0.97F));
+    }
+
+    /** Slenderman to the chest in the middle, a weak dirty green glow behind the head, the head almost black. */
+    private static void drawPortrait(PoseStack ps, int w, int h) {
+        float jx = twX * w;
+        float jy = twY * h;
+        drawGlow(ps, w * 0.5F + jx * 0.5F, h * PORTRAIT_GLOW_Y + jy * 0.5F, h * 0.55F, h * 0.50F, 0.46F * glowFlick);
+        if (killer == null) return;
+        try {
+            int scale = Math.round(h * PORTRAIT_SCALE);
+            int x = Math.round(w * 0.5F + jx);
+            int y = Math.round(h * PORTRAIT_TOP + 4.0F * scale + jy);      // the feet are far below the screen: only the chest and up show
+            RenderSystem.setShaderColor(0.07F, 0.07F, 0.07F, 1.0F);        // the model sits in the dark
+            InventoryScreen.renderEntityInInventory(x, y, scale, twMouse, 0.0F, killer);
+        } catch (Throwable ignored) {
+        } finally {
+            RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
+    }
+
+    /** a soft round glow (overlay only, no light source): the colour fades to nothing at the edge. */
+    private static void drawGlow(PoseStack ps, float cx, float cy, float rx, float ry, float alpha) {
+        try {
+            Matrix4f m = ps.last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            BufferBuilder b = Tesselator.getInstance().getBuilder();
+            b.begin(VertexFormat.Mode.TRIANGLE_FAN, DefaultVertexFormat.POSITION_COLOR);
+            b.vertex(m, cx, cy, 0F).color(0.40F, 0.48F, 0.20F, Mth.clamp(alpha, 0F, 1F)).endVertex();
+            int n = 40;
+            for (int i = 0; i <= n; i++) {
+                double a = i * (Math.PI * 2.0D / n);
+                b.vertex(m, cx + (float) Math.cos(a) * rx, cy + (float) Math.sin(a) * ry, 0F).color(0.40F, 0.48F, 0.20F, 0F).endVertex();
+            }
+            Tesselator.getInstance().end();
+        } catch (Throwable ignored) {
+        } finally {
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
+        }
     }
 
     private static void drawNoise(PoseStack ps, int w, int h, float alpha) {

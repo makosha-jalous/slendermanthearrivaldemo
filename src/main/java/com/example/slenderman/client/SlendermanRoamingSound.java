@@ -34,6 +34,14 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
     /** closer than this (blocks, centre to centre) he is heard even when he is not in view, e.g. right behind you. */
     private static final double NEAR_RANGE = 3.0D;
 
+    /**
+     * The sound category of the screamers (dramatic1a/b/c): they are NOT cut off by the black screen of the death scene,
+     * every other category is (see DeathSequenceClient).
+     */
+    public static final SoundSource SCREAM_SOURCE = SoundSource.VOICES;
+    /** the screamer that was played last (the death scene checks if it is still running). */
+    public static SoundInstance lastScream;
+
     private final SlendermanEntity entity;
     private float fade = 0.0F;
 
@@ -56,7 +64,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
 
     @Override
     public void tick() {
-        if (entity.isRemoved()) {
+        if (entity.isRemoved() || entity.getDeathPhase() >= 2) {
             this.stop();
             return;
         }
@@ -122,7 +130,9 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
             sound = SlendermanMod.MID_SIGHTS.get(id - 30).get();
         }
         if (sound == null) return;
-        mc.getSoundManager().play(new SimpleSoundInstance(sound.getLocation(), SoundSource.HOSTILE, 1.0F, 1.0F,
-                RandomSource.create(), false, 0, SoundInstance.Attenuation.NONE, 0.0D, 0.0D, 0.0D, true));
+        SimpleSoundInstance scream = new SimpleSoundInstance(sound.getLocation(), SCREAM_SOURCE, 1.0F, 1.0F,
+                RandomSource.create(), false, 0, SoundInstance.Attenuation.NONE, 0.0D, 0.0D, 0.0D, true);
+        lastScream = scream;
+        mc.getSoundManager().play(scream);
     }
 }
