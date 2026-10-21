@@ -205,8 +205,8 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double WATCH_FAR_CHANCE = 0.20D;
     private static final double WATCH_VANISH_DIST = 15.0D;
     private static final double WATCH_LOST_DIST = 100.0D;
-    /** death scene: the view turns to his face for exactly 3 s, then a sharp black screen for 2 s, then the portrait, then the death. */
-    public static final int DEATH_TURN_TICKS = 60;
+    /** death scene: the view turns to his face for exactly 2 s (only when he was in view), then a sharp black screen for 2 s, then the portrait, then the death. */
+    public static final int DEATH_TURN_TICKS = 40;
     public static final int DEATH_BLACK_TICKS = 40;
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
@@ -507,7 +507,8 @@ public class SlendermanEntity extends PathfinderMob {
         } else {
             this.updateSanity(player, seen, dist);
             // the player walks into him: instant death (the view turns to his face first)
-            if (this.touchesPlayer(player) && this.beginDeath(player, true)) return;
+            // the view turns to his face (exactly 2 s) ONLY when the player ran into him while he was in view; from behind: no turn
+            if (this.touchesPlayer(player) && this.beginDeath(player, seen)) return;
             if (this.sanityRush) {
                 this.sanityKill(player, dist);
                 return;
