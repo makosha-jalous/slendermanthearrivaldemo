@@ -41,7 +41,7 @@ public final class SlenderPages {
     }
 
     /** if there is no Slenderman around the player yet, one appears 35-40 blocks away. Returns the new one, or null. */
-    private static SlendermanEntity ensureSlenderman(ServerPlayer player) {
+    public static SlendermanEntity ensureSlenderman(ServerPlayer player) {
         List<SlendermanEntity> existing = player.level.getEntitiesOfClass(SlendermanEntity.class,
                 player.getBoundingBox().inflate(256.0D));
         if (!existing.isEmpty()) return null;

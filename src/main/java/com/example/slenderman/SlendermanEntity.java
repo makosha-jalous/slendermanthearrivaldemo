@@ -27,6 +27,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -56,7 +57,9 @@ public class SlendermanEntity extends PathfinderMob {
     private static final EntityDataAccessor<Float> DATA_SANITY = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.FLOAT);
     /** teleport cue for the camera: counter * 4 + flags (flags: 1 = he appeared in the view of the player, 2 = in front of him). */
     private static final EntityDataAccessor<Integer> DATA_TELEPORT = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
-    /** death scene for the client: 0 = none, 1 = the view turns to his face (3 s), 2 = black screen (2 s). */
+    /** death scene for the client: 0 = none, 1 = the view turns to his face (3 s), 2 = black screen (2 s), 3 = portrait (3 s), 4 = last black screen. */
+    /** watcher mode: changes when he vanishes in front of the player (the camera answers with a very short static). */
+    private static final EntityDataAccessor<Integer> DATA_BLIP = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_DEATH = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
 
     /** switches the creeping teleports on/off (kept public: other classes may use it). */
@@ -151,7 +154,7 @@ public class SlendermanEntity extends PathfinderMob {
     private static final float[]  REACH_BY      = { 0F,   0F,   0F,  0.25F, 0.35F, 0.40F, 0.45F, 0.50F, 0.50F};
     private static final float[]  BOW_BY        = { 0F,   0F,   0F,  0.20F, 0.25F, 0.30F, 0.30F, 0.30F, 0.30F};
     /** damage (half hearts) every second while he stands this close (blocks); doubled when he is really on top of the player. */
-    private static final double   DAMAGE_RANGE  = 2.3D;
+    private static final double   DAMAGE_RANGE  = 2.0D;
     private static final float[]  DAMAGE_BY     = { 0F,   0F,   0F,  0F,   1F,   2F,   3F,   5F,   0F};
     /** stage 1-2: how often (ticks) the watcher repositions and how far he jumps toward the player at most. */
     private static final int[]    WATCH_EVERY   = { 160,  160,  100,  0,    0,    0,    0,    0,    0};
@@ -181,9 +184,9 @@ public class SlendermanEntity extends PathfinderMob {
     /** pages 3-7: the player stands still and does not look at him for this long (6 s) -> he walks right up behind his back. */
     private static final int STILL_TICKS = 20 * 6;
     /** how close he stands "right behind" the player (blocks, centre to centre). Touching him (hitboxes, about 0.7) kills; he never comes closer than about 2 blocks himself. */
-    private static final double CONTACT_DIST = 2.2D;
+    private static final double CONTACT_DIST = 1.6D;
     /** no teleport ever puts him closer than this to the player (blocks, horizontal): the hitboxes must never touch by a teleport. */
-    private static final double TELEPORT_MIN_DIST = 2.0D;
+    private static final double TELEPORT_MIN_DIST = 1.1D;
     /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 20-25, 3-4: 13-17, 5-6: 8-10, 7: 5-7. */
     private static final double[] BAND_MIN = {20.0, 20.0, 20.0, 13.0, 13.0,  8.0,  8.0,  5.0,  5.0};
     private static final double[] BAND_MAX = {25.0, 25.0, 25.0, 17.0, 17.0, 10.0, 10.0,  7.0,  7.0};
@@ -191,7 +194,18 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double LAG_MARGIN = 14.0D;
     private static final int REPOSITION_TICKS = 80;
     private static final double REPOSITION_STEP = 12.0D;
-    /** death scene: the view turns to his face for exactly 3 s, then a sharp black screen for 2 s, then the death. */
+    /** false = he never shows a walking animation: while nobody looks he appears a few blocks closer (silently) and stands still. */
+    private static final boolean WALK = false;
+    /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
+    public static final int DEATH_PORTRAIT_TICKS = 60;
+    public static final int DEATH_END_TICKS = 24;
+    /** watcher mode: how far he stands (blocks), and when he vanishes because the player comes closer. */
+    private static final double WATCH_MIN = 50.0D;
+    private static final double WATCH_RANDOM = 12.0D;
+    private static final double WATCH_FAR_CHANCE = 0.20D;
+    private static final double WATCH_VANISH_DIST = 15.0D;
+    private static final double WATCH_LOST_DIST = 100.0D;
+    /** death scene: the view turns to his face for exactly 3 s, then a sharp black screen for 2 s, then the portrait, then the death. */
     public static final int DEATH_TURN_TICKS = 60;
     public static final int DEATH_BLACK_TICKS = 40;
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
@@ -291,6 +305,11 @@ public class SlendermanEntity extends PathfinderMob {
     private int stuckSeconds = 0;
     private Vec3 stuckPos = null;
     private int deathPhase = 0;
+    private int hopStepTicks = 0;
+    private boolean watchPlaced = false;
+    private int watchRepos = 0;
+    private int watchWait = 0;
+    private int blipSeq = 0;
     private int deathTicks = 0;
     private UUID deathVictim = null;
     private int cueSeq = 0;
@@ -328,6 +347,7 @@ public class SlendermanEntity extends PathfinderMob {
         this.entityData.define(DATA_SANITY, 0.0F);
         this.entityData.define(DATA_TELEPORT, 0);
         this.entityData.define(DATA_DEATH, 0);
+        this.entityData.define(DATA_BLIP, 0);
     }
 
     public int getAction() { return this.entityData.get(DATA_ACTION); }
@@ -343,6 +363,9 @@ public class SlendermanEntity extends PathfinderMob {
 
     /** 0 = nothing, 1 = the view of the victim turns to his face, 2 = black screen before the death. */
     public int getDeathPhase() { return this.entityData.get(DATA_DEATH); }
+
+    /** changes when the watcher vanishes in front of the player (camera: a ~60 ms static). */
+    public int getBlipCue() { return this.entityData.get(DATA_BLIP); }
 
     public int getActionSide() { return this.entityData.get(DATA_SIDE); }
 
@@ -462,6 +485,14 @@ public class SlendermanEntity extends PathfinderMob {
         boolean seen = this.isSeenBy(player);
         double dist = this.distanceTo(player);
 
+        // watcher mode: he only watches from far away, nothing else
+        if (SlenderModes.isWatch(player)) {
+            this.runWatcher(player, seen, dist);
+            return;
+        }
+        this.watchPlaced = false;
+        final boolean god = SlenderModes.isGod(player);
+
         this.updateStage(player);
         if (this.finalePhase != FINALE_NONE) {
             this.runFinale(player);
@@ -470,12 +501,17 @@ public class SlendermanEntity extends PathfinderMob {
 
         // ---- sanity: rises while the player looks at him, falls when he does not; at 100 he kills ----
         this.trackPlayerMovement(player);
-        this.updateSanity(player, seen, dist);
-        // the player walks into him: instant death (the view turns to his face first)
-        if (this.touchesPlayer(player) && this.beginDeath(player, true)) return;
-        if (this.sanityRush) {
-            this.sanityKill(player, dist);
-            return;
+        if (god) {
+            // God Mode: the sanity is never lost, nothing can kill
+            this.calmSanity(player);
+        } else {
+            this.updateSanity(player, seen, dist);
+            // the player walks into him: instant death (the view turns to his face first)
+            if (this.touchesPlayer(player) && this.beginDeath(player, true)) return;
+            if (this.sanityRush) {
+                this.sanityKill(player, dist);
+                return;
+            }
         }
 
         // ---- he never loses the player: far away (or player teleported) -> he jumps to the player ----
@@ -515,7 +551,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (lost >= TENTACLE_SANITY) this.tentGoal = true;
         else if (lost < TENTACLE_SANITY - 5.0F) this.tentGoal = false;
         this.updateTentacles(this.tentGoal);
-        this.contactDamage(player, dist);
+        if (!god) this.contactDamage(player, dist);
 
         // ---- screamers ----
         if (!this.vanished && this.action == ACTION_NONE) {
@@ -605,6 +641,7 @@ public class SlendermanEntity extends PathfinderMob {
             this.stuckSeconds = 0;
             this.stuckProbe = 0;
             this.stuckPos = null;
+            this.hopStepTicks = 0;
             this.setYHeadRot(this.yBodyRot);
         } else {
             // the player looks away: behind their back he turns to face them and comes for them
@@ -673,9 +710,18 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.cornerGoal != null) {
             if (--this.cornerTicks <= 0 || this.position().distanceTo(this.cornerGoal) < 1.5D) {
                 this.cornerGoal = null;
-            } else {
+            } else if (WALK) {
                 this.walkToward(this.cornerGoal.x, this.cornerGoal.y, this.cornerGoal.z, baseSpeed);
                 return true;
+            } else {
+                // no walking: he simply appears at the corner spot (it is hidden from the player by definition)
+                Vec3 spot = this.cornerGoal;
+                this.cornerGoal = null;
+                float yaw = (float) (Mth.atan2(player.getZ() - spot.z, player.getX() - spot.x) * 57.29577951308232D) - 90.0F;
+                this.suppressTeleportCue = true;
+                this.relocate(spot.x, spot.y, spot.z, yaw);
+                this.suppressTeleportCue = false;
+                return false;
             }
         }
         if (dist <= wantMax + tol) {
@@ -701,9 +747,22 @@ public class SlendermanEntity extends PathfinderMob {
             double len = Math.sqrt(look.x * look.x + look.z * look.z);
             if (len > 1.0E-3D) goal = goal.subtract(look.x / len * CONTACT_DIST, 0.0D, look.z / len * CONTACT_DIST);
         }
-        this.walkToward(goal.x, goal.y, goal.z, baseSpeed * catchUp);
-        this.watchProgress(player, dist, wantMax);
-        return true;
+        if (WALK) {
+            this.walkToward(goal.x, goal.y, goal.z, baseSpeed * catchUp);
+            this.watchProgress(player, dist, wantMax);
+            return true;
+        }
+        // no walking animation: while nobody looks he appears a few blocks closer (silently), faces the player
+        // and stands still again - the faster the more pages there are
+        int interval = Math.max(10, Math.round((float) (24.0D / Math.max(0.5D, WALK_MOD[st]))));
+        if (autoTeleport && ++this.hopStepTicks >= interval) {
+            this.hopStepTicks = 0;
+            double step = Mth.clamp(3.5D * WALK_MOD[st] * catchUp, 2.0D, 12.0D);
+            this.suppressTeleportCue = true;
+            this.creepCloser(player, step, close ? CONTACT_DIST : wantMax - 1.0D);
+            this.suppressTeleportCue = false;
+        }
+        return false;
     }
 
     /** walks to a point: along a path when the path finder finds one, otherwise (and when the path ends) straight at it. */
@@ -880,7 +939,7 @@ public class SlendermanEntity extends PathfinderMob {
             return;
         }
         this.damageTicks = 20;
-        player.hurt(this.attackSource(), dist < 1.5D ? damage * 2.0F : damage);
+        player.hurt(this.attackSource(), dist < 1.2D ? damage * 2.0F : damage);
     }
 
     /** 8th page: silence, he is gone for 10 s ... */
@@ -1063,7 +1122,7 @@ public class SlendermanEntity extends PathfinderMob {
         Vec3 look = player.getLookAngle();
         double base = Math.atan2(look.z, look.x) + Math.PI;
         for (int attempt = 0; attempt < 24; attempt++) {
-            double distance = CONTACT_DIST + 0.4D + this.random.nextDouble() * 1.2D;
+            double distance = CONTACT_DIST + this.random.nextDouble() * 0.5D;     // 1.6-2.1 blocks
             double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * 70.0D);
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
@@ -1268,6 +1327,7 @@ public class SlendermanEntity extends PathfinderMob {
      */
     private boolean beginDeath(Player player, boolean turn) {
         if (this.deathPhase != 0 || !player.isAlive()) return false;
+        if (SlenderModes.isGod(player)) return false;     // God Mode: no death scene at all
         this.deathVictim = player.getUUID();
         this.deathPhase = turn ? 1 : 2;
         this.deathTicks = 0;
@@ -1278,15 +1338,117 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.action != ACTION_NONE) this.endAction();
         this.standStill();
         // the player cannot walk away during the scene
-        int total = (turn ? DEATH_TURN_TICKS : 0) + DEATH_BLACK_TICKS + 20;
+        int total = (turn ? DEATH_TURN_TICKS : 0) + DEATH_BLACK_TICKS + DEATH_PORTRAIT_TICKS + DEATH_END_TICKS + 20;
         player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, total, 6, false, false, false));
         return true;
+    }
+
+    /** God Mode / watcher: the loss is zero all the time. */
+    private void calmSanity(Player player) {
+        SlenderSanity.set(player, 0.0F);
+        this.entityData.set(DATA_SANITY, 0.0F);
+        this.sanityRush = false;
+        this.recoverRate = 0.0F;
+    }
+
+    // ------------------------------------------------------------------ watcher mode
+
+    /**
+     * Watcher mode (/slender watch): he stands very far away (50-62 blocks, sometimes up to 80), on hills, trees and
+     * roofs, in the view of the player, and only watches. He does not move, nothing is lost. When the player comes
+     * closer than 15 blocks he vanishes (a very short static in the camera), stays away for a while and then watches
+     * from a new place.
+     */
+    private void runWatcher(Player player, boolean seen, double dist) {
+        this.calmSanity(player);
+        this.aggression = 0.0F;
+        this.entityData.set(DATA_AGGRESSION, 0.0F);
+        this.tentGoal = false;
+        this.updateTentacles(false);
+        if (this.action != ACTION_NONE) this.endAction();
+        this.standStill();
+
+        if (this.vanished) {
+            if (--this.vanishTicks <= 0) {
+                this.vanished = false;
+                this.setInvisible(false);
+                this.watchPlaced = false;
+                this.watchWait = 0;
+            }
+            return;
+        }
+        if (!this.watchPlaced) {
+            if (--this.watchWait > 0) return;
+            if (this.placeWatchSpot(player)) {
+                this.watchPlaced = true;
+                this.watchRepos = 20 * 40 + this.random.nextInt(20 * 40);   // he changes the place now and then
+            } else {
+                this.watchWait = 20;
+            }
+            return;
+        }
+        if (dist < WATCH_VANISH_DIST) {
+            // the player came too close: he is gone, the camera gets a very short static
+            this.blipSeq = (this.blipSeq + 1) % 100000;
+            this.entityData.set(DATA_BLIP, this.blipSeq);
+            this.vanished = true;
+            this.vanishTicks = 20 * 6 + this.random.nextInt(20 * 10);
+            this.parkFarAway(player);
+            this.setInvisible(true);
+            return;
+        }
+        if (dist > WATCH_LOST_DIST || (!seen && --this.watchRepos <= 0)) {
+            this.watchPlaced = false;       // the player went far away / a long time unseen: a new place
+            this.watchWait = 0;
+            return;
+        }
+        // he just stands and looks at the player
+        this.faceToward(player.position(), 6.0F);
+        Vec3 eye = player.getEyePosition();
+        this.getLookControl().setLookAt(eye.x, eye.y, eye.z, 30.0F, 30.0F);
+    }
+
+    /** a far spot (on top of the highest block: hills, treetops, roofs) in front of the player where the player can see him. */
+    private boolean placeWatchSpot(Player player) {
+        Vec3 eye = player.getEyePosition();
+        Vec3 look = player.getLookAngle();
+        double base = Math.atan2(look.z, look.x);
+        for (int attempt = 0; attempt < 90; attempt++) {
+            double distance;
+            if (attempt < 60) distance = this.random.nextDouble() < WATCH_FAR_CHANCE ? WATCH_MIN + WATCH_RANDOM + this.random.nextDouble() * 18.0D
+                    : WATCH_MIN + this.random.nextDouble() * WATCH_RANDOM;
+            else distance = 30.0D + this.random.nextDouble() * 20.0D;       // nothing found: a bit closer
+            double angle = attempt < 60 ? base + Math.toRadians((this.random.nextDouble() - 0.5D) * 100.0D)
+                    : this.random.nextDouble() * Math.PI * 2.0D;
+            double x = player.getX() + Math.cos(angle) * distance;
+            double z = player.getZ() + Math.sin(angle) * distance;
+            int ix = Mth.floor(x);
+            int iz = Mth.floor(z);
+            if (!this.level.hasChunkAt(new BlockPos(ix, 64, iz))) continue;
+            int top = this.level.getHeight(Heightmap.Types.MOTION_BLOCKING, ix, iz);
+            BlockPos pos = new BlockPos(ix, top, iz);
+            BlockState floor = this.level.getBlockState(pos.below());
+            if (floor.getCollisionShape(this.level, pos.below()).isEmpty()) continue;
+            AABB box = new AABB(x - 0.4D, top, z - 0.4D, x + 0.4D, top + 4.0D, z + 0.4D);
+            if (!this.level.noCollision(this, box) || this.level.containsAnyLiquid(box)) continue;
+            if (attempt < 60 && !this.visibleFrom(eye, x, top, z)) continue;
+            float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
+            this.suppressTeleportCue = true;
+            this.relocate(x, top, z, yaw);
+            this.suppressTeleportCue = false;
+            return true;
+        }
+        return false;
     }
 
     private void runDeath() {
         Player victim = this.deathVictim == null ? null : this.level.getPlayerByUUID(this.deathVictim);
         if (victim == null || !victim.isAlive()) {
             this.endDeath(null);
+            return;
+        }
+        if (SlenderModes.isGod(victim)) {      // God Mode was switched on during the scene
+            this.endDeath(victim);
             return;
         }
         this.standStill();
@@ -1301,11 +1463,15 @@ public class SlendermanEntity extends PathfinderMob {
         }
         SlenderSanity.set(victim, lostNow);
         this.entityData.set(DATA_SANITY, lostNow);
-        if (++this.deathTicks < (this.deathPhase == 1 ? DEATH_TURN_TICKS : DEATH_BLACK_TICKS)) return;
-        if (this.deathPhase == 1) {
-            this.deathPhase = 2;
+        int limit = this.deathPhase == 1 ? DEATH_TURN_TICKS
+                : this.deathPhase == 2 ? DEATH_BLACK_TICKS
+                : this.deathPhase == 3 ? DEATH_PORTRAIT_TICKS : DEATH_END_TICKS;
+        if (++this.deathTicks < limit) return;
+        if (this.deathPhase < 4) {
+            // 1 turn -> 2 black screen -> 3 portrait -> 4 last black screen -> the death
+            this.deathPhase++;
             this.deathTicks = 0;
-            this.entityData.set(DATA_DEATH, 2);
+            this.entityData.set(DATA_DEATH, this.deathPhase);
             return;
         }
         victim.hurt(this.killSource(victim), SANITY_KILL_DAMAGE);   // -10000
