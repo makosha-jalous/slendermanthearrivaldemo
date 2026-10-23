@@ -262,6 +262,10 @@ public class SlendermanEntity extends PathfinderMob {
     private boolean prevSeen = false;
     private double prevDist = -1.0D;
     private int unseenTicks = 0;
+    /** how many times the player has newly looked at him since his last "angry" teleport (original: seencount). */
+    private int seenCount = 0;
+    /** this many sightings make his next teleport land 3-4 blocks from the player (original: angerthreshold = 4). */
+    private static final int ANGER_SEEN_COUNT = 4;
     private int scareCooldown = 0;
     private int sightCooldown = 0;
     private int reachTimer = 0;
@@ -541,6 +545,8 @@ public class SlendermanEntity extends PathfinderMob {
         this.prevDist = dist;
         this.unseenTicks = seen ? 0 : this.unseenTicks + 1;
         this.observedTicks = seen ? this.observedTicks + 1 : 0;
+        // original game: every NEW sighting (not seen -> seen) within 45 blocks counts; 4 sightings = he gets angry
+        if (seen && !wasSeen && dist < 45.0D && !this.vanished) this.seenCount++;
 
         // ---- aggression: rises while the player is close, falls slowly when not; tentacles follow it ----
         double aggRange = AGGRESSION_RANGE + AGG_RANGE_ADD[this.stage];
@@ -1028,6 +1034,11 @@ public class SlendermanEntity extends PathfinderMob {
     /** a successful roll: where does he appear? Inside a structure he works out a spot there; outside it depends on the situation. */
     private boolean abilityTeleport(Player player, boolean seen, double dist) {
         int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        // anger (from the original SlenderMan.cs): the player has looked at him too often -> this teleport lands very close
+        if (this.seenCount >= ANGER_SEEN_COUNT) {
+            this.seenCount = 0;
+            if (st >= 3 && this.teleportNear(player, TeleportKind.PUNISH)) return true;
+        }
         if (this.playerIndoors(player)) {
             return this.hopInside(player, false) || this.teleportNear(player, TeleportKind.AHEAD);
         }
