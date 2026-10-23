@@ -262,12 +262,12 @@ public class SlendermanEntity extends PathfinderMob {
     private boolean prevSeen = false;
     private double prevDist = -1.0D;
     private int unseenTicks = 0;
-    /** how many times the player has newly looked at him since his last "angry" teleport (original: seencount). */
-    private int seenCount = 0;
-    /** this many sightings make his next teleport land 3-4 blocks from the player (original: angerthreshold = 4). */
-    private static final int ANGER_SEEN_COUNT = 4;
     private int scareCooldown = 0;
     private int sightCooldown = 0;
+    /** how many times the player has turned to him (a new sighting after he was unseen); the 4th makes him angry. */
+    private int seenCount = 0;
+    /** angry: the next teleport puts him very close (a fraction of the usual distance), like in the original game. */
+    private boolean angry = false;
     private int reachTimer = 0;
     private boolean hiding = false;
     private int huntTicks = 0;
@@ -545,8 +545,13 @@ public class SlendermanEntity extends PathfinderMob {
         this.prevDist = dist;
         this.unseenTicks = seen ? 0 : this.unseenTicks + 1;
         this.observedTicks = seen ? this.observedTicks + 1 : 0;
-        // original game: every NEW sighting (not seen -> seen) within 45 blocks counts; 4 sightings = he gets angry
-        if (seen && !wasSeen && dist < 45.0D && !this.vanished) this.seenCount++;
+        if (seen && !wasSeen && !this.vanished && !god && this.tickCount - this.lastTeleportTick > 10) {
+            // the original's "seencount": after 4 sightings the next jump is very close
+            if (++this.seenCount >= 4) {
+                this.seenCount = 0;
+                this.angry = true;
+            }
+        }
 
         // ---- aggression: rises while the player is close, falls slowly when not; tentacles follow it ----
         double aggRange = AGGRESSION_RANGE + AGG_RANGE_ADD[this.stage];
@@ -870,6 +875,9 @@ public class SlendermanEntity extends PathfinderMob {
     /** one random sound of the pool that fits the distance; then all of them rest for 15-20 s. */
     private void playSight(Player player, double dist) {
         this.sightCooldown = SIGHT_COOLDOWN_MIN + this.random.nextInt(SIGHT_COOLDOWN_RANDOM + 1);
+        // like the original: a short glitch of the camera together with the sight sound
+        this.blipSeq = (this.blipSeq + 1) % 100000;
+        this.entityData.set(DATA_BLIP, this.blipSeq);
         // 6-12 blocks: the "middle" sounds (ids 30..), 12-40 blocks: the "far" sounds (ids 10..)
         if (dist < SIGHT_MIN) {
             this.sendCue(30 + this.random.nextInt(SlendermanMod.MID_SIGHTS.size()));
@@ -1034,11 +1042,6 @@ public class SlendermanEntity extends PathfinderMob {
     /** a successful roll: where does he appear? Inside a structure he works out a spot there; outside it depends on the situation. */
     private boolean abilityTeleport(Player player, boolean seen, double dist) {
         int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
-        // anger (from the original SlenderMan.cs): the player has looked at him too often -> this teleport lands very close
-        if (this.seenCount >= ANGER_SEEN_COUNT) {
-            this.seenCount = 0;
-            if (st >= 3 && this.teleportNear(player, TeleportKind.PUNISH)) return true;
-        }
         if (this.playerIndoors(player)) {
             return this.hopInside(player, false) || this.teleportNear(player, TeleportKind.AHEAD);
         }
@@ -1595,6 +1598,10 @@ public class SlendermanEntity extends PathfinderMob {
                     offsetDeg = (this.random.nextBoolean() ? 1 : -1) * (110.0D + this.random.nextDouble() * 70.0D);
                 }
             }
+            if (this.angry && kind != TeleportKind.WATCH && kind != TeleportKind.PUNISH && kind != TeleportKind.CLOSE) {
+                // angry: an eighth of the usual distance, but never closer than 3 blocks
+                distance = Math.max(3.0D, distance / 8.0D) + this.random.nextDouble() * 0.8D;
+            }
             double angle = baseAngle + Math.toRadians(offsetDeg);
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
@@ -1645,6 +1652,7 @@ public class SlendermanEntity extends PathfinderMob {
 
     /** 3) he teleported right in front of the player in dangerous closeness -> screamer. */
     private void afterTeleport(Player player) {
+        this.angry = false;
         if (this.distanceTo(player) <= CRITICAL_RANGE && this.isInFront(player)) {
             this.scare(false, this.unseenTicks);
         }
@@ -1704,6 +1712,8 @@ public class SlendermanEntity extends PathfinderMob {
             BlockPos pos = new BlockPos(ix, iy + dy, iz);
             if (!this.level.hasChunkAt(pos)) continue;
             BlockState floor = this.level.getBlockState(pos.below());
+            // he stands on the ground, never on leaves or on tree trunks
+            if (floor.is(net.minecraft.tags.BlockTags.LEAVES) || floor.is(net.minecraft.tags.BlockTags.LOGS)) continue;
             if (!floor.getCollisionShape(this.level, pos.below()).isEmpty()) {
                 AABB box = new AABB(x - 0.4D, pos.getY(), z - 0.4D, x + 0.4D, pos.getY() + height, z + 0.4D);
                 if (this.level.noCollision(this, box) && !this.level.containsAnyLiquid(box)) return pos.getY();
