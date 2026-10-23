@@ -73,7 +73,7 @@ public final class DeathSequenceClient {
     private static final float PORTRAIT_GLOW_Y = 0.45F;
     private static final float FACE_RX = 0.22F, FACE_RY = 0.30F;
     /** how dark the model is (colour multiplier): the clothes can barely be seen. */
-    private static final float MODEL_DARK = 0.20F;
+    private static final float MODEL_DARK = 0.55F;
     /** strength of the bending of the picture (share of the screen height). */
     private static final float WARP_STRENGTH = 0.055F;
     private static final Random FX_RND = new Random();
@@ -86,6 +86,8 @@ public final class DeathSequenceClient {
     private static boolean chopHigh = true;
     private static int chopTicks = 0, speedTicks = 0, chopLen = 2;
     private static float pV, pVB, pH, pHB, glowFlick = 1.0F;
+    private static float caNow = 0.3F;
+    private static long nextStepMs = 0L;
     private static RenderTarget sceneCopy;
 
     private DeathSequenceClient() {}
@@ -155,12 +157,15 @@ public final class DeathSequenceClient {
                 // end). When no screamer is playing, a light echo of the rising sounds is left (the volume stutters down).
                 silenceAll();
                 dramaticActive = isScreamPlaying();
+                startBreath(mc);
                 echoTick = 0;
                 noiseStartMs = System.currentTimeMillis();
             }
             if (current == 3) {
                 restoreGain();                    // the echo is over: the portrait has its own sounds
                 mediumNextMs = 0L;
+                nextStepMs = 0L;
+                stopBreath();
                 stopHeavy();
                 chopHigh = false;
                 chopTicks = 0;
@@ -175,9 +180,11 @@ public final class DeathSequenceClient {
                 }
             }
             if (current == 4) {
+                stopBreath();
                 stopHeavy();                      // black again: everything dies away
             }
             if (current == 0) {
+                stopBreath();
                 stopHeavy();
                 restoreGain();
                 resetRoamingSounds(mc);
@@ -195,24 +202,48 @@ public final class DeathSequenceClient {
             mc.player.yRotO = a[0];
             mc.player.xRotO = a[1];
         }
-        if (phase == 3) stutterTick();
         if (phase == 4) {
             // everything dies away
             float master = mc.options.getSoundSourceVolume(SoundSource.MASTER);
             float k = 1.0F - Mth.clamp((ticks + 1) / (float) SlendermanEntity.DEATH_END_TICKS, 0.0F, 1.0F);
             setGain(master * k);
         }
-        if (phase == 2 && !dramaticActive) {
-            // echo: repeats that get quieter and quieter
-            echoTick++;
-            float g = 0.0F;
-            int[] hits = {2, 8, 15, 23, 32};
-            float[] vol = {0.20F, 0.12F, 0.07F, 0.04F, 0.02F};
-            for (int i = 0; i < hits.length; i++) {
-                if (echoTick >= hits[i] && echoTick < hits[i] + 3) g = vol[i];
-            }
-            setGain(g);
+    }
+
+    private static SoundInstance breathInst;
+
+    /** the only thing heard on the black screen (besides the screamers): the breathing of the camera. */
+    private static void startBreath(Minecraft mc) {
+        try {
+            breathInst = SimpleSoundInstance.forUI(new SoundEvent(new ResourceLocation("slendercam", "breathing")), 1.0F, 0.9F);
+            mc.getSoundManager().play(breathInst);
+        } catch (Throwable ignored) {
+            breathInst = null;
         }
+    }
+
+    private static void stopBreath() {
+        if (breathInst == null) return;
+        try {
+            Minecraft.getInstance().getSoundManager().stop(breathInst);
+        } catch (Throwable ignored) {
+        }
+        breathInst = null;
+    }
+
+    /** from the black screen on NO new sound may start, except the screamers and the sounds of the scene itself. */
+    @SubscribeEvent
+    public static void onPlaySound(net.minecraftforge.client.event.sound.PlaySoundEvent e) {
+        if (phase < 2) return;
+        SoundInstance si = e.getSound();
+        if (si == null) return;
+        if (si.getSource() == SlendermanRoamingSound.SCREAM_SOURCE) return;
+        ResourceLocation loc = si.getLocation();
+        if (loc.getNamespace().equals("slendercam")) {
+            String p = loc.getPath();
+            if (p.equals("breathing") || p.equals("static_medium_piece") || p.equals("static_heavy")) return;
+        }
+        e.setSound(null);
     }
 
     /** stops every sound except the screamers (they are in the category VOICES). */
@@ -309,6 +340,15 @@ public final class DeathSequenceClient {
         Minecraft mc = Minecraft.getInstance();
         SoundManager sm = mc.getSoundManager();
         long now = System.currentTimeMillis();
+        // the bend of the picture, the noise and the volume of Static Heavy change together every 40-60 ms
+        if (now >= nextStepMs) {
+            nextStepMs = now + 40L + FX_RND.nextInt(21);
+            chopHigh = !chopHigh;
+            heavyLevel = chopHigh ? 1.0F : 0.08F + 0.25F * FX_RND.nextFloat();
+            if (chopHigh) newPose();
+            caNow = chopHigh ? 0.65F + 0.35F * FX_RND.nextFloat() : 0.20F;
+            lastNoiseMs = 0L;                   // a fresh noise picture with every step
+        }
         try {
             if (mediumPiece == null) mediumPiece = new SoundEvent(new ResourceLocation("slendercam", "static_medium_piece"));
             if (mediumNextMs == 0L || now - mediumNextMs > 400L) mediumNextMs = now;
@@ -352,7 +392,7 @@ public final class DeathSequenceClient {
         if (phase == 4) return;                       // the last black screen: nothing but black
         if (phase == 3) {
             drawPortrait(ps, w, h);
-            if (chopHigh) drawBentScene(ps, w, h);              // the picture bends together with the stutter of Static Heavy, like the camera
+            drawBentScene(ps, w, h, chopHigh ? 1F : 0F, caNow);   // the picture bends (the sides) together with the stutter of Static Heavy, like the camera
             // the grain of the camera at its strongest stage (20% weaker, with a flicker)
             drawNoise(ps, w, h, 0.40F * (0.78F + 0.42F * FX_RND.nextFloat()));
             return;
@@ -390,21 +430,24 @@ public final class DeathSequenceClient {
             int scale = Math.round(h * PORTRAIT_SCALE);
             int x = Math.round(cx);
             int y = Math.round(h * PORTRAIT_TOP + 4.0F * scale);       // the feet are far below the screen: only the head and the shoulders show
-            RenderSystem.setShaderColor(MODEL_DARK, MODEL_DARK, MODEL_DARK, 1.0F);
+            RenderSystem.setShaderColor(MODEL_DARK, MODEL_DARK, MODEL_DARK * 0.95F, 1.0F);
             InventoryScreen.renderEntityInInventory(x, y, scale, 0.0F, 0.0F, killer);    // 0 / 0: exactly from the front
         } catch (Throwable ignored) {
         } finally {
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
-        // the face is in the dark: a black spot over the head (soft edge)
-        drawGlow(ps, cx, cy, h * FACE_RX, h * FACE_RY, 0.97F, 0.0F, 0.0F, 0.0F);
+        // a lamp high above him: the top of the head and the shoulders are lit, the brow throws a shadow over the face
+        drawOverheadShade(ps, w, h);
+        drawGlow(ps, cx, h * (PORTRAIT_GLOW_Y + 0.36F), h * 0.50F, h * 0.16F, 0.20F * glowFlick, 0.55F, 0.62F, 0.40F);
     }
 
     /**
      * The same bending as the camera: the picture that is on the screen (black, glow and Slenderman) is copied and drawn
      * back as a net of small squares whose corners are moved - like the interface frame and the world in the camera.
      */
-    private static void drawBentScene(PoseStack ps, int w, int h) {
+    private static float caScale = 0F, bendK = 1F;
+
+    private static void drawBentScene(PoseStack ps, int w, int h, float bend, float chroma) {
         try {
             Minecraft mc = Minecraft.getInstance();
             RenderTarget main = mc.getMainRenderTarget();
@@ -422,28 +465,41 @@ public final class DeathSequenceClient {
 
             RenderSystem.disableBlend();
             RenderSystem.disableCull();
-            RenderSystem.colorMask(true, true, true, false);
             RenderSystem.setShader(GameRenderer::getPositionTexShader);
             RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
             RenderSystem.setShaderTexture(0, sceneCopy.getColorTextureId());
-            BufferBuilder b = Tesselator.getInstance().getBuilder();
-            b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
             Matrix4f m = ps.last().pose();
             final int cols = 36, rows = 22;
             float x0 = -0.06F * w, x1 = 1.06F * w, y0 = -0.06F * h, y1 = 1.06F * h;
-            for (int j = 0; j < rows; j++) {
-                float ya = y0 + (y1 - y0) * j / rows;
-                float yb = y0 + (y1 - y0) * (j + 1) / rows;
-                for (int i = 0; i < cols; i++) {
-                    float xa = x0 + (x1 - x0) * i / cols;
-                    float xb = x0 + (x1 - x0) * (i + 1) / cols;
-                    warpVertex(b, m, xa, ya, w, h);
-                    warpVertex(b, m, xa, yb, w, h);
-                    warpVertex(b, m, xb, yb, w, h);
-                    warpVertex(b, m, xb, ya, w, h);
+            bendK = bend;
+            // the colour split like in the camera: red a little bigger, blue a little smaller, green as it is
+            boolean split = chroma > 0.01F;
+            int passes = split ? 3 : 1;
+            for (int pass = 0; pass < passes; pass++) {
+                if (split) {
+                    RenderSystem.colorMask(pass == 0, pass == 1, pass == 2, false);
+                    caScale = (pass == 0 ? 1F : pass == 2 ? -1F : 0F) * chroma * 0.016F;
+                } else {
+                    RenderSystem.colorMask(true, true, true, false);
+                    caScale = 0F;
                 }
+                BufferBuilder b = Tesselator.getInstance().getBuilder();
+                b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
+                for (int jj = 0; jj < rows; jj++) {
+                    float ya = y0 + (y1 - y0) * jj / rows;
+                    float yb = y0 + (y1 - y0) * (jj + 1) / rows;
+                    for (int ii = 0; ii < cols; ii++) {
+                        float xa = x0 + (x1 - x0) * ii / cols;
+                        float xb = x0 + (x1 - x0) * (ii + 1) / cols;
+                        warpVertex(b, m, xa, ya, w, h);
+                        warpVertex(b, m, xa, yb, w, h);
+                        warpVertex(b, m, xb, yb, w, h);
+                        warpVertex(b, m, xb, ya, w, h);
+                    }
+                }
+                BufferUploader.drawWithShader(b.end());
             }
-            BufferUploader.drawWithShader(b.end());
+            caScale = 0F;
         } catch (Throwable ignored) {
         } finally {
             RenderSystem.colorMask(true, true, true, true);
@@ -451,13 +507,66 @@ public final class DeathSequenceClient {
         }
     }
 
+    /** the shadow of the face: black over the middle of the head (a soft band), light again on the shoulders below it. */
+    private static void drawOverheadShade(PoseStack ps, int w, int h) {
+        try {
+            Matrix4f m = ps.last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            BufferBuilder b = Tesselator.getInstance().getBuilder();
+            b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            final int rows = 28, cols = 14;
+            float top = h * 0.14F, bottom = h * 0.80F;
+            float left = w * 0.5F - h * 0.62F, right = w * 0.5F + h * 0.62F;
+            for (int r = 0; r < rows; r++) {
+                float ya = top + (bottom - top) * r / rows, yb = top + (bottom - top) * (r + 1) / rows;
+                for (int c = 0; c < cols; c++) {
+                    float xa = left + (right - left) * c / cols, xb = left + (right - left) * (c + 1) / cols;
+                    float a00 = shadeAlpha(xa, ya, w, h), a01 = shadeAlpha(xa, yb, w, h);
+                    float a11 = shadeAlpha(xb, yb, w, h), a10 = shadeAlpha(xb, ya, w, h);
+                    b.vertex(m, xa, ya, 0F).color(0F, 0F, 0F, a00).endVertex();
+                    b.vertex(m, xa, yb, 0F).color(0F, 0F, 0F, a01).endVertex();
+                    b.vertex(m, xb, yb, 0F).color(0F, 0F, 0F, a11).endVertex();
+                    b.vertex(m, xb, ya, 0F).color(0F, 0F, 0F, a10).endVertex();
+                }
+            }
+            Tesselator.getInstance().end();
+        } catch (Throwable ignored) {
+        } finally {
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
+        }
+    }
+
+    private static float shadeAlpha(float x, float y, int w, float h) {
+        float v = (y / h);
+        float vert;
+        if (v < 0.24F) vert = 0F;                                        // the lit top of the head
+        else if (v < 0.36F) vert = (v - 0.24F) / 0.12F;                  // the shadow of the brow comes in
+        else if (v < 0.58F) vert = 1F;                                   // the face: black
+        else if (v < 0.72F) vert = 1F - 0.78F * (v - 0.58F) / 0.14F;     // down to the shoulders: lit again
+        else vert = 0.22F;
+        float dx = Math.abs(x - w * 0.5F) / (h * 0.62F);
+        float horiz = Mth.clamp(1.15F - dx * dx * 1.2F, 0F, 1F);
+        return Mth.clamp(vert * (0.35F + 0.62F * horiz), 0F, 0.97F);
+    }
+
+    /**
+     * Same bending as the frame of the camera: the four SIDES move (they shift and bulge), the middle stays calm.
+     */
     private static void warpVertex(BufferBuilder b, Matrix4f m, float x, float y, int w, int h) {
-        float u = Mth.clamp(x / w, 0F, 1F);
-        float v = Mth.clamp(y / h, 0F, 1F);
-        float amp = WARP_STRENGTH * h;
-        float dx = amp * (pVB * (float) Math.sin(Math.PI * v) + pV * (v - 0.5F) * 1.6F);
-        float dy = amp * (pHB * (float) Math.sin(Math.PI * u) + pH * (u - 0.5F) * 1.6F);
-        b.vertex(m, x + dx, y + dy, 0F).uv(u, 1F - v).endVertex();
+        float u = x / w;
+        float v = y / h;
+        float uc = Mth.clamp(u, 0F, 1F), vc = Mth.clamp(v, 0F, 1F);
+        float amp = WARP_STRENGTH * h * bendK;
+        float dx = amp * (1F - 2F * u) * (0.8F * pV + 0.8F * pVB * (float) Math.sin(Math.PI * vc));
+        float dy = amp * (1F - 2F * v) * (0.8F * pH + 0.8F * pHB * (float) Math.sin(Math.PI * uc));
+        float px = x + dx, py = y + dy;
+        px = w * 0.5F + (px - w * 0.5F) * (1F + caScale);
+        py = h * 0.5F + (py - h * 0.5F) * (1F + caScale);
+        b.vertex(m, px, py, 0F).uv(uc, 1F - vc).endVertex();
     }
 
     /** a soft round glow (overlay only, no light source): the colour fades to nothing at the edge. */
