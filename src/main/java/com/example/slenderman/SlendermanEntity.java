@@ -197,7 +197,7 @@ public class SlendermanEntity extends PathfinderMob {
     /** false = he never shows a walking animation: while nobody looks he appears a few blocks closer (silently) and stands still. */
     private static final boolean WALK = false;
     /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
-    public static final int DEATH_PORTRAIT_TICKS = 60;
+    public static final int DEATH_PORTRAIT_TICKS = 40;
     public static final int DEATH_END_TICKS = 24;
     /** watcher mode: how far he stands (blocks), and when he vanishes because the player comes closer. */
     private static final double WATCH_MIN = 50.0D;
@@ -207,7 +207,7 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double WATCH_LOST_DIST = 100.0D;
     /** death scene: the view turns to his face for exactly 2 s (only when he was in view), then a sharp black screen for 2 s, then the portrait, then the death. */
     public static final int DEATH_TURN_TICKS = 40;
-    public static final int DEATH_BLACK_TICKS = 40;
+    public static final int DEATH_BLACK_TICKS = 50;
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
     /** closer than this and behind the player's back (roaming.ogg plays) he takes the sanity without being looked at. */
@@ -1491,6 +1491,11 @@ public class SlendermanEntity extends PathfinderMob {
         }
         victim.hurt(this.killSource(victim), SANITY_KILL_DAMAGE);   // -10000
         this.endDeath(victim);
+        // after the respawn there is no monster anywhere: the next trigger (a page) brings him back
+        for (SlendermanEntity other : this.level.getEntitiesOfClass(SlendermanEntity.class, this.getBoundingBox().inflate(1024.0D))) {
+            if (other != this) other.discard();
+        }
+        this.discard();
     }
 
     private void endDeath(Player victim) {
