@@ -27,13 +27,11 @@ public class SlenderInteriorSoundManager {
             return;
         }
 
-        // 1. Управление звуком ветра (играет всегда в мире, независимо от Слендермена)
         if (activeWindSound == null || activeWindSound.isStopped()) {
             activeWindSound = new WindAmbientSoundInstance();
             mc.getSoundManager().play(activeWindSound);
         }
 
-        // 2. Проверяем наличие Слендермена для внутреннего гула
         List<SlendermanEntity> slendermen = mc.level.getEntitiesOfClass(
                 SlendermanEntity.class,
                 mc.player.getBoundingBox().inflate(128.0D)
@@ -44,7 +42,6 @@ public class SlenderInteriorSoundManager {
             return;
         }
 
-        // 3. Проверка нахождения под крышей для гула
         boolean isIndoors = checkIndoors(mc);
 
         if (isIndoors) {
@@ -87,7 +84,7 @@ public class SlenderInteriorSoundManager {
     private static void stopSounds() {
         stopInteriorSound();
         if (activeWindSound != null) {
-            activeWindSound.stop();
+            activeWindSound.stopSound();
             activeWindSound = null;
         }
     }
