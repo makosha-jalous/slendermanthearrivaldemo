@@ -125,6 +125,7 @@ public class SlendermanMod {
         ENTITIES.register(bus);
         ITEMS.register(bus);
         SOUNDS.register(bus);
+        StepSoundRegistry.SOUNDS.register(bus);
         bus.addListener(this::commonSetup);
     }
 
