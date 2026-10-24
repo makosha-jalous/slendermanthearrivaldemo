@@ -168,32 +168,5 @@
         "stream": false
       }
     ]
-  },
-  "slender_footsteps": {
-    "category": "hostile",
-    "sounds": [
-      {
-        "name": "slenderman:slender_footsteps",
-        "stream": false
-      }
-    ]
-  },
-  "interior_ambience": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:bassambiance",
-        "stream": false
-      }
-    ]
-  },
-  "wind_ambience": {
-    "category": "ambient",
-    "sounds": [
-      {
-        "name": "slenderman:wind",
-        "stream": false
-      }
-    ]
   }
 }
