@@ -23,10 +23,10 @@ public class StereoFootstepSoundInstance extends AbstractTickableSoundInstance {
         this.mode = mode;
         this.volume = volume;
         this.pitch = pitch;
-        this.maxTicks = Math.max(20, durationTicks); // Минимальная длительность 1 секунда
+        this.maxTicks = Math.max(20, durationTicks);
         this.looping = false;
         this.delay = 0;
-        this.relative = false; // Позиционируется в мировых координатах от игрока
+        this.relative = false;
 
         updatePosition(0.0F);
     }
@@ -55,10 +55,9 @@ public class StereoFootstepSoundInstance extends AbstractTickableSoundInstance {
 
         Vec3 playerPos = mc.player.getEyePosition();
         Vec3 look = mc.player.getLookAngle();
-        // Вектор "вправо" относительно направления взгляда игрока
         Vec3 right = new Vec3(-look.z, 0, look.x).normalize();
 
-        double offsetDistance = 3.5D; // Расстояние стерео-базы от головы
+        double offsetDistance = 3.5D;
         double currentOffset = 0.0D;
 
         switch (mode) {
