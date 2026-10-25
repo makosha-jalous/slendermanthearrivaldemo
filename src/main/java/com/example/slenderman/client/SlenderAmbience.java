@@ -42,6 +42,10 @@ public final class SlenderAmbience {
     // ---------------------------------------------------------------- settings
     /** basic volume of all three sounds: 0.6 = 40 % quieter than the files are. Change it here if needed. */
     private static final float VOLUME = 0.6F;
+    /** extra volume of the WIND only (1 = as the basic volume, 0.5 = half as loud). Lower it to make the wind quieter. */
+    private static final float WIND_VOLUME = 0.5F;
+    /** extra volume of the BASS only. */
+    private static final float BASS_VOLUME = 1.0F;
     /** wind inside a building (1 = as loud as outside). 0.30 = 70 % quieter. Use 0 to switch the wind off inside. */
     private static final float WIND_INDOOR = 0.30F;
     /** how long it takes to fade (ticks, 20 ticks = 1 second). */
@@ -122,11 +126,13 @@ public final class SlenderAmbience {
     /** a looping sound that is not placed in the world (always the same loudness in both ears). */
     private static final class LoopSound extends AbstractTickableSoundInstance {
         private final Fader fader;
+        private final float gain;
         int age = 0;
 
-        LoopSound(String event, Fader fader) {
+        LoopSound(String event, Fader fader, float gain) {
             super(new SoundEvent(new ResourceLocation(NS, event)), SoundSource.AMBIENT, RandomSource.create());
             this.fader = fader;
+            this.gain = gain;
             this.looping = true;
             this.delay = 0;
             this.volume = 0.0001F;
@@ -141,7 +147,7 @@ public final class SlenderAmbience {
         public void tick() {
             age++;
             // never exactly 0, otherwise the engine would end the loop
-            this.volume = Math.max(fader.cur * VOLUME, 0.0001F);
+            this.volume = Math.max(fader.cur * VOLUME * gain, 0.0001F);
         }
 
         void halt() {
@@ -206,8 +212,8 @@ public final class SlenderAmbience {
         BASS.tick();
 
         SoundManager sm = mc.getSoundManager();
-        windSound = manageLoop(sm, windSound, WIND, "wind");
-        bassSound = manageLoop(sm, bassSound, BASS, "bass");
+        windSound = manageLoop(sm, windSound, WIND, "wind", WIND_VOLUME);
+        bassSound = manageLoop(sm, bassSound, BASS, "bass", BASS_VOLUME);
 
         // ---- footsteps
         if (slender) {
@@ -222,7 +228,7 @@ public final class SlenderAmbience {
     }
 
     /** starts the loop when it is audible, ends it when it has faded out, restarts it if something killed it. */
-    private static LoopSound manageLoop(SoundManager sm, LoopSound sound, Fader fader, String event) {
+    private static LoopSound manageLoop(SoundManager sm, LoopSound sound, Fader fader, String event, float gain) {
         boolean audible = fader.cur > 0.002F || fader.goal > 0.0F;
         if (!audible) {
             if (sound != null) sound.halt();
@@ -230,7 +236,7 @@ public final class SlenderAmbience {
         }
         if (sound != null && !sound.isStopped() && (sound.age < 30 || sm.isActive(sound))) return sound;
         if (sound != null) sound.halt();
-        LoopSound fresh = new LoopSound(event, fader);
+        LoopSound fresh = new LoopSound(event, fader, gain);
         sm.play(fresh);
         return fresh;
     }
