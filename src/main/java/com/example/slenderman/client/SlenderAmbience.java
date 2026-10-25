@@ -47,7 +47,7 @@ public final class SlenderAmbience {
     /** extra volume of the BASS only. */
     private static final float BASS_VOLUME = 1.0F;
     /** wind inside a building (1 = as loud as outside). 0.30 = 70 % quieter. Use 0 to switch the wind off inside. */
-    private static final float WIND_INDOOR = 0.30F;
+    private static final float WIND_INDOOR = 0.1F;
     /** how long it takes to fade (ticks, 20 ticks = 1 second). */
     private static final int WIND_FADE_DOWN = 40;   // going inside: 2 s
     private static final int WIND_FADE_UP = 60;     // going outside: 3 s
