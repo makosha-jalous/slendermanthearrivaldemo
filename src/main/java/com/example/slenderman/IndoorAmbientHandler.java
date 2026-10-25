@@ -46,7 +46,7 @@ public final class IndoorAmbientHandler {
                 SlendermanEntity.class,
                 mc.player.getBoundingBox().inflate(128.0D)
         );
-        boolean slendermanPresent = !slendermen.isEmpty() && slendermen.stream().anyMatch(Entity::isAlive);
+        boolean slendermanPresent = !slendermen.isEmpty() && slendermen.stream().anyMatch(e -> e.isAlive());
 
         BlockPos playerPos = mc.player.blockPosition();
         boolean indoors = !mc.level.canSeeSky(playerPos);
