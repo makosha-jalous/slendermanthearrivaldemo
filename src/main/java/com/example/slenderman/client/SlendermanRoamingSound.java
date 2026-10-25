@@ -29,6 +29,10 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
     /** range of the sound in blocks. The engine's range is 16 * volume at the moment the sound starts. */
     private static final float RANGE = 60.0F;
     private static final float START_VOLUME = RANGE / 16.0F;
+    /** how loud the roaming is: 1.0 = as it is, 0.5 = half as loud, 0.0 = silent. Change this number to set the volume. */
+    private static final float ROAMING_VOLUME = 1.0F;
+    /** the pitch (tone) of the roaming: 1.0 = as it is, 2.0 = twice as high (one octave up, the highest possible). It also plays faster. */
+    private static final float ROAMING_PITCH = 1.0F;
     /** how much of the screen counts as "in view" (dot product with the view direction, 0.5 = 60 degrees to each side). */
     private static final double VIEW_COS = 0.5D;
     /** closer than this (blocks, centre to centre) he is heard even when he is not in view, e.g. right behind you. */
@@ -51,6 +55,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
         this.looping = true;
         this.delay = 0;
         this.volume = START_VOLUME;
+        this.pitch = ROAMING_PITCH;
         this.relative = false;
         this.attenuation = SoundInstance.Attenuation.LINEAR;
         this.followEntity();
@@ -73,7 +78,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
         // fade in over about 1 second, fade out a bit faster
         this.fade += Mth.clamp((visible ? 1.0F : 0.0F) - this.fade, -0.10F, 0.05F);
         // never exactly 0, otherwise the engine would stop the loop
-        this.volume = Math.max(this.fade, 0.0001F);
+        this.volume = Math.max(this.fade * ROAMING_VOLUME, 0.0001F);
     }
 
     /** he is heard when he is in view, or when he is standing right next to / behind the player. */
