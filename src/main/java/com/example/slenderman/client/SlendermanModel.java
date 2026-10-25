@@ -101,55 +101,95 @@ public class SlendermanModel extends EntityModel<SlendermanEntity> {
         MeshDefinition mesh = new MeshDefinition();
         PartDefinition root = mesh.getRoot();
 
-        // ---- torso: 12 wide, 6 deep, 26 tall (+2 below the hip so the joint never shows a gap) ----
+        // ---- torso ----
         PartDefinition torso = root.addOrReplaceChild("torso",
-            CubeListBuilder.create().texOffs(0, 0).addBox(-6.0F, -26.0F, -3.0F, 12.0F, 28.0F, 6.0F),
+            CubeListBuilder.create()
+                .texOffs(0, 20).addBox(-6.0F, -6.885F, -3.0F, 12.0F, 6.97F, 6.0F, new CubeDeformation(0.0F, 0.015F, -0.2F))
+                .texOffs(0, 11).addBox(-6.0F, -15.885F, -3.1F, 12.0F, 8.97F, 6.0F, new CubeDeformation(-0.4F, 0.015F, -0.1F))
+                .texOffs(0, 1).addBox(-6.0F, -25.98F, -3.15F, 12.0F, 10.06F, 6.0F, new CubeDeformation(0.3F, 0.02F, 0.15F)),
             PartPose.offset(0.0F, -4.0F, 0.0F));
-
-        // ---- head: a plain 10x10x10 cube sitting directly on the shoulders ----
+        // ---- head ----
         PartDefinition head = torso.addOrReplaceChild("head",
-            CubeListBuilder.create().texOffs(40, 0).addBox(-5.0F, -10.0F, -5.0F, 10.0F, 10.0F, 10.0F),
+            CubeListBuilder.create()
+                .texOffs(40, 0).addBox(-5.0F, -9.3F, -5.7F, 10.0F, 10.0F, 10.0F, new CubeDeformation(-0.7F, -0.7F, -0.6F)),
             PartPose.offset(0.0F, -26.0F, 0.0F));
-
-        // The arms are made wider with CubeDeformation: it grows x/z only (not the length) and does NOT change the
-        // texture mapping, so the PNG stays exactly as it is. Upper arm 4 -> 6, forearm 4 -> 5.5 (hand is 5).
-        CubeDeformation upperGrow = new CubeDeformation(1.0F, 0.0F, 1.0F);
-        CubeDeformation foreGrow = new CubeDeformation(0.75F, 0.0F, 0.75F);
-
-        // ---- left arm (x+): upper arm, forearm, square hand. Hands end below the knees ----
+        // ---- left_arm ----
         PartDefinition leftArm = torso.addOrReplaceChild("left_arm",
-            CubeListBuilder.create().texOffs(0, 40).addBox(-2.0F, -2.0F, -2.0F, 4.0F, 20.0F, 4.0F, upperGrow),
+            CubeListBuilder.create(),
             PartPose.offset(9.0F, -24.0F, 0.0F));
+        leftArm.addOrReplaceChild("left_arm_part1",
+            CubeListBuilder.create()
+                .texOffs(0, 51).addBox(-2.1F, 8.5F, -2.0F, 4.0F, 9.0F, 4.0F, new CubeDeformation(0.9F, 0.5F, 0.8F)),
+            PartPose.offsetAndRotation(0.3F, 0.0F, 0.0F, 0.0815F * DEG, -0.1422F * DEG, -2.4947F * DEG));
+        leftArm.addOrReplaceChild("left_arm_part2",
+            CubeListBuilder.create()
+                .texOffs(0, 40).addBox(-2.1F, -2.0F, -2.0F, 4.0F, 11.0F, 4.0F, new CubeDeformation(0.9F, 0.0F, 0.8F)),
+            PartPose.offsetAndRotation(0.0F, 0.0F, 0.0F, 0.0876F * DEG, -0.1385F * DEG, -4.9947F * DEG));
+        // ---- left_forearm ----
         PartDefinition leftForearm = leftArm.addOrReplaceChild("left_forearm",
-            CubeListBuilder.create().texOffs(16, 40).addBox(-2.0F, 0.0F, -2.0F, 4.0F, 20.0F, 4.0F, foreGrow),
+            CubeListBuilder.create(),
             PartPose.offset(0.0F, 18.0F, 0.0F));
+        leftForearm.addOrReplaceChild("left_forearm_part1",
+            CubeListBuilder.create()
+                .texOffs(16, 40).addBox(-2.1F, 0.5F, -2.0F, 4.0F, 20.0F, 4.0F, new CubeDeformation(0.85F, -2.5F, 0.75F)),
+            PartPose.offsetAndRotation(1.2F, -4.0F, 0.0F, 0.0F * DEG, 0.0F * DEG, 2.5F * DEG));
+        // ---- left_hand ----
         PartDefinition leftHand = leftForearm.addOrReplaceChild("left_hand",
-            CubeListBuilder.create().texOffs(32, 40).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 5.0F, 5.0F),
+            CubeListBuilder.create(),
             PartPose.offset(0.0F, 20.0F, 0.0F));
-
-        // ---- right arm (x-) ----
+        leftHand.addOrReplaceChild("left_hand_part1",
+            CubeListBuilder.create()
+                .texOffs(32, 40).addBox(-2.7F, 0.0F, -2.5F, 5.2F, 5.0F, 5.0F),
+            PartPose.offsetAndRotation(0.5F, -7.0F, 0.0F, 0.0F * DEG, 0.0F * DEG, 5.0F * DEG));
+        // ---- right_arm ----
         PartDefinition rightArm = torso.addOrReplaceChild("right_arm",
-            CubeListBuilder.create().texOffs(0, 40).addBox(-2.0F, -2.0F, -2.0F, 4.0F, 20.0F, 4.0F, upperGrow),
+            CubeListBuilder.create(),
             PartPose.offset(-9.0F, -24.0F, 0.0F));
+        rightArm.addOrReplaceChild("right_arm_part1",
+            CubeListBuilder.create()
+                .texOffs(0, 51).addBox(-1.9F, 8.5F, -2.0F, 4.0F, 9.0F, 4.0F, new CubeDeformation(0.9F, 0.5F, 0.8F)),
+            PartPose.offsetAndRotation(-0.4F, 0.0F, 0.0F, -0.0752F * DEG, 0.1456F * DEG, 2.4945F * DEG));
+        rightArm.addOrReplaceChild("right_arm_part2",
+            CubeListBuilder.create()
+                .texOffs(0, 40).addBox(-1.9F, -2.0F, -2.0F, 4.0F, 11.0F, 4.0F, new CubeDeformation(0.9F, 0.0F, 0.8F)),
+            PartPose.offsetAndRotation(0.0F, 0.0F, 0.0F, -0.0688F * DEG, 0.1487F * DEG, 4.9945F * DEG));
+        // ---- right_forearm ----
         PartDefinition rightForearm = rightArm.addOrReplaceChild("right_forearm",
-            CubeListBuilder.create().texOffs(16, 40).addBox(-2.0F, 0.0F, -2.0F, 4.0F, 20.0F, 4.0F, foreGrow),
+            CubeListBuilder.create(),
             PartPose.offset(0.0F, 18.0F, 0.0F));
+        rightForearm.addOrReplaceChild("right_forearm_part1",
+            CubeListBuilder.create()
+                .texOffs(16, 40).addBox(-1.9F, 0.5F, -2.0F, 4.0F, 20.0F, 4.0F, new CubeDeformation(0.85F, -2.5F, 0.75F)),
+            PartPose.offsetAndRotation(-1.2F, -4.0F, 0.0F, 0.0F * DEG, 0.0F * DEG, -2.5F * DEG));
+        // ---- right_hand ----
         PartDefinition rightHand = rightForearm.addOrReplaceChild("right_hand",
-            CubeListBuilder.create().texOffs(32, 40).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 5.0F, 5.0F),
+            CubeListBuilder.create(),
             PartPose.offset(0.0F, 20.0F, 0.0F));
-
-        // ---- legs: 5x5 thigh + 5x5 shin, 28 tall in total ----
+        rightHand.addOrReplaceChild("right_hand_part1",
+            CubeListBuilder.create()
+                .texOffs(32, 40).addBox(-2.5F, 0.0F, -2.5F, 5.2F, 5.0F, 5.0F),
+            PartPose.offsetAndRotation(-0.5F, -7.0F, 0.0F, 0.0F * DEG, 0.0F * DEG, -5.0F * DEG));
+        // ---- left_thigh ----
         PartDefinition leftThigh = root.addOrReplaceChild("left_thigh",
-            CubeListBuilder.create().texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 14.0F, 5.0F),
+            CubeListBuilder.create()
+                .texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.5F, 14.0F, 5.0F),
             PartPose.offset(3.0F, -4.0F, 0.0F));
+        // ---- left_shin ----
         PartDefinition leftShin = leftThigh.addOrReplaceChild("left_shin",
-            CubeListBuilder.create().texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 14.0F, 5.0F),
+            CubeListBuilder.create()
+                .texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.5F, 14.0F, 5.0F)
+                .texOffs(0, 69).addBox(-2.1F, 11.0F, -7.5F, 4.5F, 3.0F, 6.0F),
             PartPose.offset(0.0F, 14.0F, 0.0F));
+        // ---- right_thigh ----
         PartDefinition rightThigh = root.addOrReplaceChild("right_thigh",
-            CubeListBuilder.create().texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 14.0F, 5.0F),
+            CubeListBuilder.create()
+                .texOffs(0, 70).addBox(-3.0F, 0.0F, -2.5F, 5.5F, 14.0F, 5.0F),
             PartPose.offset(-3.0F, -4.0F, 0.0F));
+        // ---- right_shin ----
         PartDefinition rightShin = rightThigh.addOrReplaceChild("right_shin",
-            CubeListBuilder.create().texOffs(0, 70).addBox(-2.5F, 0.0F, -2.5F, 5.0F, 14.0F, 5.0F),
+            CubeListBuilder.create()
+                .texOffs(0, 70).addBox(-3.0F, 0.0F, -2.5F, 5.5F, 14.0F, 5.0F)
+                .texOffs(0, 69).addBox(-2.5F, 11.0F, -7.5F, 4.5F, 3.0F, 6.0F),
             PartPose.offset(0.0F, 14.0F, 0.0F));
 
         // ---- 6 tentacles (t0..t5): the roots sit inside the torso at the CENTRE of his back; 8 thin segments each ----
