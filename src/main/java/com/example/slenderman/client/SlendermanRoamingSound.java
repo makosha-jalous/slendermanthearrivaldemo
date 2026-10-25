@@ -32,7 +32,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
     /** how loud the roaming is: 1.0 = as it is, 0.5 = half as loud, 0.0 = silent. Change this number to set the volume. */
     private static final float ROAMING_VOLUME = 0.7F;
     /** the pitch (tone) of the roaming: 1.0 = as it is, 2.0 = twice as high (one octave up, the highest possible). It also plays faster. */
-    private static final float ROAMING_PITCH = 1.2F;
+    private static final float ROAMING_PITCH = 1.1F;
     /** how much of the screen counts as "in view" (dot product with the view direction, 0.5 = 60 degrees to each side). */
     private static final double VIEW_COS = 0.5D;
     /** closer than this (blocks, centre to centre) he is heard even when he is not in view, e.g. right behind you. */
