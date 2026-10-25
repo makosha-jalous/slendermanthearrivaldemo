@@ -69,11 +69,6 @@ public class SlendermanMod {
     /** the looping sound that comes from Slenderman (file: assets/slenderman/sounds/roaming.ogg). */
     public static final RegistryObject<SoundEvent> ROAMING = SOUNDS.register("roaming",
             () -> new SoundEvent(new ResourceLocation(ID, "roaming")));
-    
-    /** Indoor ambience that plays while Slenderman exists in the world. */
-    public static final RegistryObject<SoundEvent> BASS_AMBIANCE =
-        SOUNDS.register("bassambiance",
-                () -> new SoundEvent(new ResourceLocation(ID, "bassambiance")));
 
     /**
      * the three screamer sounds (files: assets/slenderman/sounds/dramatic1a.ogg, dramatic1b.ogg, dramatic1c.ogg).
