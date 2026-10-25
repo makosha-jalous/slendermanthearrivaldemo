@@ -168,5 +168,14 @@
         "stream": false
       }
     ]
+  },
+  "bassambiance": {
+    "category": "ambient",
+    "sounds": [
+     {
+       "name": "slenderman:bassambiance",
+       "stream": true
+      }
+    ]
   }
 }
