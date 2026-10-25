@@ -64,7 +64,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
 
     @Override
     public void tick() {
-        if (entity.isRemoved() || entity.getDeathPhase() >= 2) {
+        if (entity.isRemoved() || entity.getDeathPhase() >= 2 || entity.isWatcher()) {
             this.stop();
             return;
         }
@@ -103,6 +103,7 @@ public class SlendermanRoamingSound extends AbstractTickableSoundInstance {
 
     /** called every client tick by the entity: starts the sound the first time he comes into view within range. */
     public static void clientTick(SlendermanEntity e) {
+        if (e.isWatcher()) return;      // watcher mode: no roaming
         Object existing = e.roamingSound;
         if (existing instanceof SlendermanRoamingSound running && !running.isStopped()) return;
         Minecraft mc = Minecraft.getInstance();
