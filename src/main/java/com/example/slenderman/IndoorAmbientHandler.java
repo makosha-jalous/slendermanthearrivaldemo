@@ -3,15 +3,14 @@ package com.example.slenderman;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.sound.PlaySoundEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-import java.util.Random;
+import java.util.List;
 
 /**
  * Client-side indoor ambience.
@@ -42,16 +41,20 @@ public final class IndoorAmbientHandler {
             return;
         }
 
-        boolean slendermanPresent = mc.level.entitiesForRendering().anyMatch(
-                entity -> entity instanceof SlendermanEntity && entity.isAlive()
+        // Исправлено: безопасная проверка наличия живого Слендермена в радиусе 128 блоков
+        List<SlendermanEntity> slendermen = mc.level.getEntitiesOfClass(
+                SlendermanEntity.class,
+                mc.player.getBoundingBox().inflate(128.0D)
         );
+        boolean slendermanPresent = !slendermen.isEmpty() && slendermen.stream().anyMatch(Entity::isAlive);
 
         BlockPos playerPos = mc.player.blockPosition();
         boolean indoors = !mc.level.canSeeSky(playerPos);
         boolean eligible = slendermanPresent && indoors;
 
         if (eligible) {
-            if (activeSound == null || activeSound.isFinished()) {
+            // Исправлено: проверка использования .isStopped() вместо несуществующего .isFinished()
+            if (activeSound == null || activeSound.isStopped()) {
                 activeSound = new IndoorAmbientSound();
                 mc.getSoundManager().play(activeSound);
             }
@@ -77,7 +80,8 @@ public final class IndoorAmbientHandler {
         private boolean stopped = false;
 
         private IndoorAmbientSound() {
-            super(SlendermanMod.BASS_AMBIANCE.get(), SoundSource.AMBIENT, new Random());
+            // Исправлено: использование RandomSource вместо классического Random
+            super(SlendermanMod.BASS_AMBIANCE.get(), SoundSource.AMBIENT, RandomSource.create());
             this.looping = true;
             this.delay = 0;
             this.volume = 0.0F;
@@ -98,11 +102,13 @@ public final class IndoorAmbientHandler {
 
         private void stopSound() {
             stopped = true;
-            stop();
+            this.stop();
         }
 
-        private boolean isStopped() {
-            return stopped || isStoppedByManager();
+        // Исправлено: сделано public для корректного переопределения доступа
+        @Override
+        public boolean isStopped() {
+            return stopped || super.isStopped();
         }
 
         @Override
@@ -112,16 +118,12 @@ public final class IndoorAmbientHandler {
                 volume = MAX_VOLUME * Math.max(0.0F, 1.0F - (float) fadeOutTicks / FADE_OUT_TICKS);
                 if (fadeOutTicks >= FADE_OUT_TICKS) {
                     stopped = true;
-                    stop();
+                    this.stop();
                 }
             } else {
                 if (fadeTicks < FADE_IN_TICKS) fadeTicks++;
                 volume = MAX_VOLUME * Math.min(1.0F, (float) fadeTicks / FADE_IN_TICKS);
             }
-        }
-
-        private boolean isStoppedByManager() {
-            return stopped;
         }
     }
 }
