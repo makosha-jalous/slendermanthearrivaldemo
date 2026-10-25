@@ -359,6 +359,9 @@ public class SlendermanEntity extends PathfinderMob {
     /** 0..1: how aggressive he is right now (rises while the player is close, falls slowly afterwards). */
     public float getAggression() { return this.entityData.get(DATA_AGGRESSION); }
 
+    /** watcher mode (/slender watch): synced as aggression -1. No roaming sound and no camera noise for him. */
+    public boolean isWatcher() { return this.entityData.get(DATA_AGGRESSION) < 0.0F; }
+
     /** 0..100: how much sanity the hunted player has LOST (100 = he kills with one hit). Readable on the client. */
     public float getSanity() { return this.entityData.get(DATA_SANITY); }
 
@@ -1377,7 +1380,8 @@ public class SlendermanEntity extends PathfinderMob {
     private void runWatcher(Player player, boolean seen, double dist) {
         this.calmSanity(player);
         this.aggression = 0.0F;
-        this.entityData.set(DATA_AGGRESSION, 0.0F);
+        // -1 = "I am only a watcher": the client mods (roaming sound, camera) read it and stay quiet
+        this.entityData.set(DATA_AGGRESSION, -1.0F);
         this.tentGoal = false;
         this.updateTentacles(false);
         if (this.action != ACTION_NONE) this.endAction();
