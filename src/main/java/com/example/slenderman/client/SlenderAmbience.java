@@ -43,7 +43,7 @@ public final class SlenderAmbience {
     /** basic volume of all three sounds: 0.6 = 40 % quieter than the files are. Change it here if needed. */
     private static final float VOLUME = 0.6F;
     /** extra volume of the WIND only (1 = as the basic volume, 0.5 = half as loud). Lower it to make the wind quieter. */
-    private static final float WIND_VOLUME = 0.1F;
+    private static final float WIND_VOLUME = 0.2F;
     /** extra volume of the BASS only. */
     private static final float BASS_VOLUME = 1.0F;
     /** wind inside a building (1 = as loud as outside). 0.30 = 70 % quieter. Use 0 to switch the wind off inside. */
