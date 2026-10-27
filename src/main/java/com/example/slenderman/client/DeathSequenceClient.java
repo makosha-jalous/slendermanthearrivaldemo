@@ -31,6 +31,19 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import java.util.Random;
+import net.minecraft.client.resources.sounds.Sound;
+import net.minecraft.client.sounds.AudioStream;
+import net.minecraft.client.sounds.SoundBufferLibrary;
+import org.lwjgl.BufferUtils;
+import javax.sound.sampled.AudioFormat;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderGuiEvent;
@@ -90,6 +103,8 @@ public final class DeathSequenceClient {
      * DEATH_LOSS is the sanity loss that the dice uses in the portrait.
      */
     private static final float DEATH_LOSS = 30F;
+    /** strength of the grain over the portrait: more transparent than before (0.40), because he is not always visible. */
+    private static final float DEATH_NOISE = 0.24F;
     private static boolean deathOn = false;
     private static float fishX = 0F, fishY = 0F;
     private static float glowFlick = 1.0F;
@@ -186,10 +201,12 @@ public final class DeathSequenceClient {
                 bandCount = 0;
                 fishX = fishY = caNow = 0F;
                 glowFlick = 1.0F;
+                processedStep = -1L;
+                epochNs = System.nanoTime();
                 try {
-                    lightInst = new DeathLoop("static_light_full");
-                    mediumInst = new DeathLoop("static_medium_full");
-                    heavyInst = new DeathLoop("static_heavy_full");
+                    lightInst = new DeathLoop("death_light");
+                    mediumInst = new DeathLoop("death_medium");
+                    heavyInst = new DeathLoop("death_heavy");
                     mc.getSoundManager().play(lightInst);
                     mc.getSoundManager().play(mediumInst);
                     mc.getSoundManager().play(heavyInst);
@@ -210,7 +227,6 @@ public final class DeathSequenceClient {
             ticks++;
         }
         killer = found;
-        if (phase == 3) deathDice();
 
         if (phase != 0 && killer != null && mc.player != null) {
             // the player cannot turn the head: the real rotation is overwritten every tick
@@ -263,7 +279,8 @@ public final class DeathSequenceClient {
         }
         if (loc.getNamespace().equals("slendercamfx")) {
             String p = loc.getPath();
-            if (p.equals("static_light_full") || p.equals("static_medium_full") || p.equals("static_heavy_full")) return;
+            if (p.equals("death_light") || p.equals("death_medium") || p.equals("death_heavy")
+                    || p.equals("static_light_full") || p.equals("static_medium_full") || p.equals("static_heavy_full")) return;
         }
         e.setSound(null);
     }
@@ -297,54 +314,108 @@ public final class DeathSequenceClient {
         }
     }
 
-    private static final Random DICE = new Random();
+    // ------------------------------------------------------------------------------------------
+    //  THE DICE OF THE PORTRAIT: 20 ms STEPS (the FixedUpdate step of the original), for the sounds AND the picture.
+    //  Every 20 ms step has its own dice Random.value < (loss + 35) / 100 and its own random numbers; they are computed from
+    //  the number of the step (diceAt / rnd), so the sounds (produced on the sound thread) and the picture (drawn every frame)
+    //  get exactly the same answers for the same step. The time of step n is  epoch + n * 20 ms  (the picture is shifted by
+    //  SYNC_MS, the delay of the sound output).
+    // ------------------------------------------------------------------------------------------
+    private static final long STEP_NS = 20_000_000L;
+    private static final float DEATH_P = (DEATH_LOSS + 35F) / 100F;
+    private static final long SYNC_MS = 50L;
+    private static volatile long epochNs = 0L;
+    private static long processedStep = -1L;
+    private static final long SEED = 0x5EED5L;
 
-    private static float range(float a, float b) {
-        return a + (b - a) * DICE.nextFloat();      // Random.Range(a, b)
+    private static long mix(long z) {
+        z += 0x9E3779B97F4A7C15L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
     }
 
-    /**
-     * One step of the dice (every game tick during the portrait). Apply = the sounds are heard and the picture is distorted,
-     * Revert = everything is muted and straight. The fisheye keeps its value while the dice is on and is reset by every Revert.
-     */
-    private static void deathDice() {
+    /** a random number 0..1 that belongs to a step and a purpose (salt). */
+    private static float rnd(long step, int salt) {
+        long h = mix(mix(step * 31L + salt) ^ SEED);
+        return ((h >>> 40) & 0xFFFFFFL) / (float) 0x1000000;
+    }
+
+    /** the dice of one step: true = Apply (heard, distorted), false = Revert (muted, straight). */
+    static boolean diceAt(long step) {
+        return rnd(step, 1) < DEATH_P;
+    }
+
+    private static float range(long step, int salt, float a, float b) {
+        return a + (b - a) * rnd(step, salt);       // Random.Range(a, b)
+    }
+
+    /** the step that is heard / seen right now. */
+    private static long currentStep(long shiftMs) {
+        long e = epochNs;
+        if (e == 0L) return -1L;
+        return (System.nanoTime() - e - shiftMs * 1_000_000L) / STEP_NS;
+    }
+
+    /** one step of the picture: Apply or Revert, exactly like Visuals() / Revert() of the original. */
+    private static void applyStep(long s) {
         float I = DEATH_LOSS;
-        deathOn = DICE.nextFloat() < (I + 35F) / 100F && I > 0F;
+        deathOn = diceAt(s) && I > 0F;
         if (deathOn) {
-            caNow = Mth.clamp(range(0.2F, 1.5F * I + 50F) / 200F, 0F, 1F);
-            if (DICE.nextFloat() > 0.85F) {
-                fishY = range(-0.01F * (100F - I), 0.005F * (100F - I));
-            } else if (DICE.nextFloat() > 0.75F) {
-                fishX = range(-0.01F * (100F - I), 0.005F * (100F - I));
+            caNow = Mth.clamp(range(s, 2, 0.2F, 1.5F * I + 50F) / 200F, 0F, 1F);
+            if (rnd(s, 3) > 0.85F) {
+                fishY = range(s, 4, -0.01F * (100F - I), 0.005F * (100F - I));
+            } else if (rnd(s, 5) > 0.75F) {
+                fishX = range(s, 6, -0.01F * (100F - I), 0.005F * (100F - I));
             }
-            glowFlick = 0.88F + 0.12F * DICE.nextFloat();
+            glowFlick = 0.88F + 0.12F * rnd(s, 7);
+            if (s % 5 == 0) {                                   // the scratches jump about 10 times a second
+                bandCount = 1 + (int) (rnd(s, 8) * 3F);
+                if (bandCount > 3) bandCount = 3;
+                for (int i = 0; i < bandCount; i++) {
+                    BAND_Y[i] = rnd(s, 20 + i);
+                    BAND_T[i] = 0.9F + 2.4F * rnd(s, 30 + i);   // thickness in pixels of a 1080p screen
+                }
+            }
         } else {
             caNow = 0F;
             fishX = 0F;
             fishY = 0F;
-        }
-        coverOn = DICE.nextFloat() >= (I + 35F) / 100F;
-        if (deathOn) {
-            if (bandTick++ % 2 == 0) {
-                bandCount = 1 + DICE.nextInt(3);
-                for (int i = 0; i < bandCount; i++) {
-                    BAND_Y[i] = DICE.nextFloat();
-                    BAND_T[i] = 0.9F + 2.4F * DICE.nextFloat();      // thickness in pixels of a 1080p screen
-                }
-            }
-        } else {
             bandCount = 0;
         }
-        lastNoiseMs = 0L;                   // a fresh noise picture with every step
+        coverOn = rnd(s, 9) >= DEATH_P;                          // the black screen: its own throw with the same chance formula
+        lastNoiseMs = 0L;                                        // a fresh grain picture with every step
     }
 
-    /** a whole track of the camera mod, muted / unmuted by the dice once per game tick. */
+    /** runs the steps that have passed since the last frame (called every rendered frame during the portrait). */
+    @SubscribeEvent
+    public static void onRenderTick(TickEvent.RenderTickEvent e) {
+        if (e.phase != TickEvent.Phase.START || phase != 3) return;
+        long cur = currentStep(SYNC_MS);
+        if (cur < 0L) return;
+        if (processedStep < 0L) processedStep = Math.max(-1L, cur - 1L);
+        int n = 0;
+        while (processedStep < cur && n < 12) {
+            processedStep++;
+            applyStep(processedStep);
+            n++;
+        }
+        if (processedStep < cur) processedStep = cur;
+    }
+
+    /**
+     * A layer of the portrait: a looping whole track. When the sound engine asks for its stream (getStream) it gets a GateStream
+     * that mutes / unmutes the track in every 20 ms block with the dice of that block. If that does not work (streamed stays
+     * false) the layer falls back to switching its volume once per game tick.
+     */
     private static final class DeathLoop extends net.minecraft.client.resources.sounds.AbstractTickableSoundInstance {
-        DeathLoop(String file) {
-            super(new SoundEvent(new ResourceLocation("slendercamfx", file)), SoundSource.MASTER, net.minecraft.util.RandomSource.create());
+        volatile boolean streamed;
+
+        DeathLoop(String event) {
+            super(new SoundEvent(new ResourceLocation("slendercamfx", event)), SoundSource.MASTER, net.minecraft.util.RandomSource.create());
             this.looping = true;
             this.delay = 0;
-            this.volume = 0.0001F;
+            this.volume = 1.0F;
             this.relative = true;
             this.attenuation = SoundInstance.Attenuation.NONE;
         }
@@ -352,11 +423,87 @@ public final class DeathSequenceClient {
         @Override
         public boolean canStartSilent() { return true; }
 
+        public CompletableFuture<AudioStream> getStream(SoundBufferLibrary lib, Sound sound, boolean loop) {
+            return lib.getStream(sound.getPath(), false).thenApply(src -> {
+                try {
+                    GateStream gs = new GateStream(src);
+                    streamed = true;
+                    return (AudioStream) gs;
+                } catch (IOException ex) {
+                    throw new CompletionException(ex);
+                }
+            });
+        }
+
         @Override
         public void tick() {
-            this.volume = deathOn ? 1.0F : 0.0001F;
-            if (phase != 3) this.stop();
+            if (phase != 3) { this.stop(); return; }
+            if (streamed) { this.volume = 1.0F; return; }
+            long st = currentStep(0L);
+            this.volume = (st >= 0L && diceAt(st)) ? 1.0F : 0.0001F;
         }
+    }
+
+    /** the whole track, copied sample by sample; every 20 ms block is heard or silent (the track keeps running while it is muted). */
+    private static final class GateStream implements AudioStream {
+        private final AudioFormat format;
+        private final short[] pcm;
+        private final ByteOrder order;
+        private final int stepSamples;
+        private long step = -1L;
+        private int stepLeft;
+        private boolean on;
+        private int pos;
+
+        GateStream(AudioStream src) throws IOException {
+            this.format = src.getFormat();
+            this.stepSamples = Math.max(1, Math.round(format.getSampleRate() * 0.02F));
+            List<short[]> chunks = new ArrayList<>();
+            ByteOrder ord = ByteOrder.nativeOrder();
+            boolean first = true;
+            int total = 0;
+            while (true) {
+                ByteBuffer b = src.read(32768);
+                if (b == null || !b.hasRemaining()) break;
+                if (first) { ord = b.order(); first = false; }
+                ShortBuffer sb = b.asShortBuffer();
+                short[] a = new short[sb.remaining()];
+                sb.get(a);
+                chunks.add(a);
+                total += a.length;
+            }
+            src.close();
+            short[] all = new short[Math.max(1, total)];
+            int p = 0;
+            for (short[] a : chunks) { System.arraycopy(a, 0, all, p, a.length); p += a.length; }
+            this.pcm = all;
+            this.order = ord;
+        }
+
+        @Override public AudioFormat getFormat() { return format; }
+
+        @Override public ByteBuffer read(int size) {
+            if (step < 0L) {
+                long e = epochNs;
+                step = e == 0L ? 0L : Math.max(0L, (System.nanoTime() - e) / STEP_NS);   // the same clock as the picture
+                stepLeft = 0;
+            }
+            int n = Math.max(1, size / 2);
+            ByteBuffer out = BufferUtils.createByteBuffer(n * 2).order(order);
+            for (int i = 0; i < n; i++) {
+                if (stepLeft <= 0) {
+                    on = diceAt(step++);
+                    stepLeft = stepSamples;
+                }
+                stepLeft--;
+                out.putShort(on ? pcm[pos] : 0);
+                if (++pos >= pcm.length) pos = 0;
+            }
+            out.flip();
+            return out;
+        }
+
+        @Override public void close() { }
     }
 
     private static void stopLoops() {
@@ -407,7 +554,7 @@ public final class DeathSequenceClient {
             drawPortrait(ps, w, h);
             if (coverOn) GuiComponent.fill(ps, 0, 0, w, h, 0xFF000000);      // the black screen covers the picture now and then
             // the grain of the camera at its strongest stage (20% weaker, with a flicker)
-            drawNoise(ps, w, h, 0.40F * (0.78F + 0.42F * FX_RND.nextFloat()));
+            drawNoise(ps, w, h, DEATH_NOISE * (0.78F + 0.42F * FX_RND.nextFloat()));
             drawBentScene(ps, w, h, caNow);   // the fisheye and the colour split of the dice bend everything, the static too
             return;
         }
@@ -630,7 +777,7 @@ public final class DeathSequenceClient {
                 noiseLoc = mc.getTextureManager().register("slenderman_death_noise", noise);
             }
             long now = System.currentTimeMillis();
-            if (now - lastNoiseMs > 40L) {
+            if (now - lastNoiseMs > 12L) {
                 lastNoiseMs = now;
                 NativeImage img = noise.getPixels();
                 if (img != null) {
