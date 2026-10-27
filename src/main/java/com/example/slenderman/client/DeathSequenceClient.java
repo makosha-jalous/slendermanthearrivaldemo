@@ -73,24 +73,40 @@ public final class DeathSequenceClient {
     private static final float PORTRAIT_GLOW_Y = 0.45F;
     private static final float FACE_RX = 0.22F, FACE_RY = 0.30F;
     /** how dark the model is (colour multiplier): the clothes can barely be seen. */
-    private static final float MODEL_DARK = 0.55F;
+    private static final float MODEL_DARK = 1.00F;     // the skin of the death scene is painted dark already: no extra darkening
+    /** the glow behind him is 70 % darker than before (brightness x 0.30). */
+    private static final float GLOW_DIM = 0.30F;
     /** strength of the bending of the picture (share of the screen height). */
     private static final float WARP_STRENGTH = 0.055F;
     private static final Random FX_RND = new Random();
-    private static SoundEvent mediumPiece, heavyLoop;
     private static boolean dramaticActive = false;
-    private static long mediumNextMs = 0L;
-    private static HeavyTrack heavyInst;
-    /** Static Heavy of the portrait: ONE track, its volume stutters at changing speeds; every stutter step bends the picture. */
-    private static float heavyLevel = 1.0F;
-    private static boolean chopHigh = true;
-    private static int chopTicks = 0, speedTicks = 0, chopLen = 2;
-    private static float pV, pVB, pH, pHB, glowFlick = 1.0F;
-    private static float caNow = 0.3F;
-    private static long nextStepMs = 0L;
+    private static DeathLoop lightInst, mediumInst, heavyInst;
+    /**
+     * THE PORTRAIT USES THE DICE OF THE ORIGINAL GAME (the same as the camera): once per game tick (50 ms) one dice
+     * Random.value < (loss + 35) / 100 decides for the sounds AND for the picture at the same moment:
+     *   heard / on:  Static Light, Medium and Heavy are audible, the picture gets a chromatic aberration and the fisheye
+     *                (strengthY with 15 %, else strengthX with 25 %, range -0.01*(100-loss) .. 0.005*(100-loss));
+     *   silent / off: all sounds are muted and the picture is straight again (Revert).
+     * DEATH_LOSS is the sanity loss that the dice uses in the portrait.
+     */
+    private static final float DEATH_LOSS = 30F;
+    private static boolean deathOn = false;
+    private static float fishX = 0F, fishY = 0F;
+    private static float glowFlick = 1.0F;
+    private static float caNow = 0F;
+    /** the black screen over the picture: it has its own throw every tick with the same formula (covers with the chance 1 - (loss + 35) / 100). */
+    private static boolean coverOn = false;
+    /** the scratches: gaps in the grain (horizontal bands over the whole width), new ones about 10 times a second. */
+    private static int bandCount = 0, bandTick = 0;
+    private static final float[] BAND_Y = new float[3], BAND_T = new float[3];
     private static RenderTarget sceneCopy;
 
     private DeathSequenceClient() {}
+
+    /** true while the portrait is on the screen: the renderer then uses the skin of the death scene. */
+    public static boolean isPortrait() {
+        return phase == 3;
+    }
 
     private static float[] targetAngles(Minecraft mc, float pt) {
         Vec3 eye = mc.player.getEyePosition(pt);
@@ -163,29 +179,30 @@ public final class DeathSequenceClient {
             }
             if (current == 3) {
                 restoreGain();                    // the echo is over: the portrait has its own sounds
-                mediumNextMs = 0L;
-                nextStepMs = 0L;
                 stopBreath();
-                stopHeavy();
-                chopHigh = false;
-                chopTicks = 0;
-                speedTicks = 0;
-                heavyLevel = 1.0F;
-                newPose();
+                stopLoops();
+                deathOn = false;
+                coverOn = false;
+                bandCount = 0;
+                fishX = fishY = caNow = 0F;
+                glowFlick = 1.0F;
                 try {
-                    if (heavyLoop == null) heavyLoop = new SoundEvent(new ResourceLocation("slendercam", "static_heavy"));
-                    heavyInst = new HeavyTrack(heavyLoop);
+                    lightInst = new DeathLoop("static_light_full");
+                    mediumInst = new DeathLoop("static_medium_full");
+                    heavyInst = new DeathLoop("static_heavy_full");
+                    mc.getSoundManager().play(lightInst);
+                    mc.getSoundManager().play(mediumInst);
                     mc.getSoundManager().play(heavyInst);
                 } catch (Throwable ignored) {
                 }
             }
             if (current == 4) {
                 stopBreath();
-                stopHeavy();                      // black again: everything dies away
+                stopLoops();                      // black again: everything dies away
             }
             if (current == 0) {
                 stopBreath();
-                stopHeavy();
+                stopLoops();
                 restoreGain();
                 resetRoamingSounds(mc);
             }
@@ -193,6 +210,7 @@ public final class DeathSequenceClient {
             ticks++;
         }
         killer = found;
+        if (phase == 3) deathDice();
 
         if (phase != 0 && killer != null && mc.player != null) {
             // the player cannot turn the head: the real rotation is overwritten every tick
@@ -243,6 +261,10 @@ public final class DeathSequenceClient {
             String p = loc.getPath();
             if (p.equals("breathing") || p.equals("static_medium_piece") || p.equals("static_heavy")) return;
         }
+        if (loc.getNamespace().equals("slendercamfx")) {
+            String p = loc.getPath();
+            if (p.equals("static_light_full") || p.equals("static_medium_full") || p.equals("static_heavy_full")) return;
+        }
         e.setSound(null);
     }
 
@@ -275,96 +297,86 @@ public final class DeathSequenceClient {
         }
     }
 
-    private static float randPose() {
-        float v = 0.45F + 0.55F * FX_RND.nextFloat();
-        return FX_RND.nextBoolean() ? v : -v;
+    private static final Random DICE = new Random();
+
+    private static float range(float a, float b) {
+        return a + (b - a) * DICE.nextFloat();      // Random.Range(a, b)
     }
 
-    /** a new bent pose of the picture (like the camera interface). */
-    private static void newPose() {
-        pV = randPose();
-        pVB = randPose();
-        pH = randPose();
-        pHB = randPose();
-        glowFlick = 0.88F + 0.12F * FX_RND.nextFloat();
-    }
-
-    /** one step of the stutter (every client tick during the portrait): the volume jumps between full and low at changing speeds. */
-    private static void stutterTick() {
-        if (--speedTicks <= 0) {
-            speedTicks = 6 + FX_RND.nextInt(10);                // every 0.3-0.8 s the speed changes
-            chopLen = 1 + FX_RND.nextInt(3);                    // 1, 2 or 3 ticks per step: fast ... slower
+    /**
+     * One step of the dice (every game tick during the portrait). Apply = the sounds are heard and the picture is distorted,
+     * Revert = everything is muted and straight. The fisheye keeps its value while the dice is on and is reset by every Revert.
+     */
+    private static void deathDice() {
+        float I = DEATH_LOSS;
+        deathOn = DICE.nextFloat() < (I + 35F) / 100F && I > 0F;
+        if (deathOn) {
+            caNow = Mth.clamp(range(0.2F, 1.5F * I + 50F) / 200F, 0F, 1F);
+            if (DICE.nextFloat() > 0.85F) {
+                fishY = range(-0.01F * (100F - I), 0.005F * (100F - I));
+            } else if (DICE.nextFloat() > 0.75F) {
+                fishX = range(-0.01F * (100F - I), 0.005F * (100F - I));
+            }
+            glowFlick = 0.88F + 0.12F * DICE.nextFloat();
+        } else {
+            caNow = 0F;
+            fishX = 0F;
+            fishY = 0F;
         }
-        if (--chopTicks > 0) return;
-        chopHigh = !chopHigh;
-        chopTicks = chopLen;
-        heavyLevel = chopHigh ? 1.0F : 0.10F;
-        if (chopHigh) newPose();
+        coverOn = DICE.nextFloat() >= (I + 35F) / 100F;
+        if (deathOn) {
+            if (bandTick++ % 2 == 0) {
+                bandCount = 1 + DICE.nextInt(3);
+                for (int i = 0; i < bandCount; i++) {
+                    BAND_Y[i] = DICE.nextFloat();
+                    BAND_T[i] = 0.9F + 2.4F * DICE.nextFloat();      // thickness in pixels of a 1080p screen
+                }
+            }
+        } else {
+            bandCount = 0;
+        }
+        lastNoiseMs = 0L;                   // a fresh noise picture with every step
     }
 
-    /** the one continuous track of Static Heavy. */
-    private static final class HeavyTrack extends net.minecraft.client.resources.sounds.AbstractTickableSoundInstance {
-        HeavyTrack(SoundEvent ev) {
-            super(ev, SoundSource.MASTER, net.minecraft.util.RandomSource.create());
+    /** a whole track of the camera mod, muted / unmuted by the dice once per game tick. */
+    private static final class DeathLoop extends net.minecraft.client.resources.sounds.AbstractTickableSoundInstance {
+        DeathLoop(String file) {
+            super(new SoundEvent(new ResourceLocation("slendercamfx", file)), SoundSource.MASTER, net.minecraft.util.RandomSource.create());
             this.looping = true;
             this.delay = 0;
-            this.volume = 1.0F;
+            this.volume = 0.0001F;
             this.relative = true;
             this.attenuation = SoundInstance.Attenuation.NONE;
         }
 
         @Override
+        public boolean canStartSilent() { return true; }
+
+        @Override
         public void tick() {
-            this.volume = Math.max(0.001F, heavyLevel);
+            this.volume = deathOn ? 1.0F : 0.0001F;
             if (phase != 3) this.stop();
         }
     }
 
-    private static void stopHeavy() {
-        if (heavyInst == null) return;
+    private static void stopLoops() {
         try {
-            Minecraft.getInstance().getSoundManager().stop(heavyInst);
+            SoundManager sm = Minecraft.getInstance().getSoundManager();
+            if (lightInst != null) sm.stop(lightInst);
+            if (mediumInst != null) sm.stop(mediumInst);
+            if (heavyInst != null) sm.stop(heavyInst);
         } catch (Throwable ignored) {
         }
+        lightInst = null;
+        mediumInst = null;
         heavyInst = null;
-    }
-
-    /**
-     * The sounds of the portrait, checked every rendered frame (the pieces are only 80-160 ms long):
-     * Static Medium in pieces (one after another, 125-160 ms). Static Heavy is one continuous track (see stutterTick).
-     */
-    @SubscribeEvent
-    public static void onRenderTick(TickEvent.RenderTickEvent e) {
-        if (e.phase != TickEvent.Phase.START) return;
-        if (phase != 3) return;
-        Minecraft mc = Minecraft.getInstance();
-        SoundManager sm = mc.getSoundManager();
-        long now = System.currentTimeMillis();
-        // the bend of the picture, the noise and the volume of Static Heavy change together every 40-60 ms
-        if (now >= nextStepMs) {
-            nextStepMs = now + 40L + FX_RND.nextInt(21);
-            chopHigh = !chopHigh;
-            heavyLevel = chopHigh ? 1.0F : 0.08F + 0.25F * FX_RND.nextFloat();
-            if (chopHigh) newPose();
-            caNow = chopHigh ? 0.65F + 0.35F * FX_RND.nextFloat() : 0.20F;
-            lastNoiseMs = 0L;                   // a fresh noise picture with every step
-        }
-        try {
-            if (mediumPiece == null) mediumPiece = new SoundEvent(new ResourceLocation("slendercam", "static_medium_piece"));
-            if (mediumNextMs == 0L || now - mediumNextMs > 400L) mediumNextMs = now;
-            if (now >= mediumNextMs) {
-                sm.play(SimpleSoundInstance.forUI(mediumPiece, 0.97F + FX_RND.nextFloat() * 0.06F, 1.0F));
-                mediumNextMs = now + 125L + FX_RND.nextInt(36);
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut e) {
         phase = 0;
         killer = null;
-        stopHeavy();
+        stopLoops();
         restoreGain();
     }
 
@@ -391,10 +403,12 @@ public final class DeathSequenceClient {
         GuiComponent.fill(ps, 0, 0, w, h, 0xFF000000);
         if (phase == 4) return;                       // the last black screen: nothing but black
         if (phase == 3) {
+            // layers, from the back: background - Slenderman - black screen - static (grain, noise, scratches) - fisheye
             drawPortrait(ps, w, h);
-            drawBentScene(ps, w, h, chopHigh ? 1F : 0F, caNow);   // the picture bends (the sides) together with the stutter of Static Heavy, like the camera
+            if (coverOn) GuiComponent.fill(ps, 0, 0, w, h, 0xFF000000);      // the black screen covers the picture now and then
             // the grain of the camera at its strongest stage (20% weaker, with a flicker)
             drawNoise(ps, w, h, 0.40F * (0.78F + 0.42F * FX_RND.nextFloat()));
+            drawBentScene(ps, w, h, caNow);   // the fisheye and the colour split of the dice bend everything, the static too
             return;
         }
 
@@ -424,7 +438,7 @@ public final class DeathSequenceClient {
     private static void drawPortrait(PoseStack ps, int w, int h) {
         float cx = w * 0.5F;
         float cy = h * PORTRAIT_GLOW_Y;
-        drawGlow(ps, cx, cy, h * 0.60F, h * 0.55F, 0.46F * glowFlick, 0.40F, 0.48F, 0.20F);
+        drawGlow(ps, cx, cy, h * 0.60F, h * 0.55F, 0.46F * glowFlick * GLOW_DIM, 0.40F, 0.48F, 0.20F);
         if (killer == null) return;
         try {
             int scale = Math.round(h * PORTRAIT_SCALE);
@@ -436,18 +450,17 @@ public final class DeathSequenceClient {
         } finally {
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
-        // a lamp high above him: the top of the head and the shoulders are lit, the brow throws a shadow over the face
-        drawOverheadShade(ps, w, h);
-        drawGlow(ps, cx, h * (PORTRAIT_GLOW_Y + 0.36F), h * 0.50F, h * 0.16F, 0.20F * glowFlick, 0.55F, 0.62F, 0.40F);
+        // (no dark shadow over the face any more: it is painted on the skin of the death scene)
+        drawGlow(ps, cx, h * (PORTRAIT_GLOW_Y + 0.36F), h * 0.50F, h * 0.16F, 0.20F * glowFlick * GLOW_DIM, 0.55F, 0.62F, 0.40F);
     }
 
     /**
      * The same bending as the camera: the picture that is on the screen (black, glow and Slenderman) is copied and drawn
      * back as a net of small squares whose corners are moved - like the interface frame and the world in the camera.
      */
-    private static float caScale = 0F, bendK = 1F;
+    private static float caScale = 0F;
 
-    private static void drawBentScene(PoseStack ps, int w, int h, float bend, float chroma) {
+    private static void drawBentScene(PoseStack ps, int w, int h, float chroma) {
         try {
             Minecraft mc = Minecraft.getInstance();
             RenderTarget main = mc.getMainRenderTarget();
@@ -471,14 +484,13 @@ public final class DeathSequenceClient {
             Matrix4f m = ps.last().pose();
             final int cols = 36, rows = 22;
             float x0 = -0.06F * w, x1 = 1.06F * w, y0 = -0.06F * h, y1 = 1.06F * h;
-            bendK = bend;
-            // the colour split like in the camera: red a little bigger, blue a little smaller, green as it is
-            boolean split = chroma > 0.01F;
+            // the colour split like in the camera: only the green channel is moved (red + blue stay together = pink)
+            boolean split = chroma > 0.002F;
             int passes = split ? 3 : 1;
             for (int pass = 0; pass < passes; pass++) {
                 if (split) {
                     RenderSystem.colorMask(pass == 0, pass == 1, pass == 2, false);
-                    caScale = (pass == 0 ? 1F : pass == 2 ? -1F : 0F) * chroma * 0.016F;
+                    caScale = (pass == 1 ? 1F : 0F) * chroma * 0.16F;
                 } else {
                     RenderSystem.colorMask(true, true, true, false);
                     caScale = 0F;
@@ -553,20 +565,26 @@ public final class DeathSequenceClient {
         return Mth.clamp(vert * (0.35F + 0.62F * horiz), 0F, 0.97F);
     }
 
+    private static final float FISH_K = 80F / 512F;
+
     /**
-     * Same bending as the frame of the camera: the four SIDES move (they shift and bulge), the middle stays calm.
+     * FISHEYE of the original (Unity Fisheye): the picture is sampled at (uv - offset), offset.x = (1 - y*y) * strengthY * K * x,
+     * offset.y = (1 - x*x) * strengthX * aspect * K * y, x and y from -1 to 1, K = 80/512. The colour split moves the green
+     * channel outwards by the cube of the distance from the middle.
      */
     private static void warpVertex(BufferBuilder b, Matrix4f m, float x, float y, int w, int h) {
-        float u = x / w;
-        float v = y / h;
-        float uc = Mth.clamp(u, 0F, 1F), vc = Mth.clamp(v, 0F, 1F);
-        float amp = WARP_STRENGTH * h * bendK;
-        float dx = amp * (1F - 2F * u) * (0.8F * pV + 0.8F * pVB * (float) Math.sin(Math.PI * vc));
-        float dy = amp * (1F - 2F * v) * (0.8F * pH + 0.8F * pHB * (float) Math.sin(Math.PI * uc));
-        float px = x + dx, py = y + dy;
-        px = w * 0.5F + (px - w * 0.5F) * (1F + caScale);
-        py = h * 0.5F + (py - h * 0.5F) * (1F + caScale);
-        b.vertex(m, px, py, 0F).uv(uc, 1F - vc).endVertex();
+        float u0 = x / w;
+        float v0 = 1F - y / h;                                  // frame buffer textures are upside down
+        float cx = 2F * u0 - 1F, cy = 2F * v0 - 1F;
+        float ar = w / (float) h;
+        float offX = (1F - cy * cy) * fishY * FISH_K * cx;
+        float offY = (1F - cx * cx) * fishX * ar * FISH_K * cy;
+        float u = Mth.clamp(u0 - offX, 0F, 1F), v = Mth.clamp(v0 - offY, 0F, 1F);
+        float dxn = (x - w * 0.5F) / (w * 0.5F), dyn = (y - h * 0.5F) / (h * 0.5F);
+        float fe = 1F + caScale * (dxn * dxn + dyn * dyn);
+        float px = w * 0.5F + (x - w * 0.5F) * fe;
+        float py = h * 0.5F + (y - h * 0.5F) * fe;
+        b.vertex(m, px, py, 0F).uv(u, v).endVertex();
     }
 
     /** a soft round glow (overlay only, no light source): the colour fades to nothing at the edge. */
@@ -594,6 +612,14 @@ public final class DeathSequenceClient {
     }
 
     private static int clamp255(int v) { return v < 0 ? 0 : Math.min(v, 255); }
+
+    private static void noiseStrip(PoseStack ps, int w, int ya, int yb, float u0, float v0, double g, float alpha) {
+        if (yb <= ya || alpha <= 0.001F) return;
+        RenderSystem.setShaderColor(1F, 1F, 1F, alpha);
+        int regionW = Math.max(1, (int) Math.round(w * g));
+        int regionH = Math.max(1, (int) Math.round((yb - ya) * g));
+        GuiComponent.blit(ps, 0, ya, w, yb - ya, u0, v0 + (float) (ya * g), regionW, regionH, NOISE_TEX, NOISE_TEX);
+    }
 
     private static void drawNoise(PoseStack ps, int w, int h, float alpha) {
         Minecraft mc = Minecraft.getInstance();
@@ -633,8 +659,28 @@ public final class DeathSequenceClient {
             RenderSystem.setShader(GameRenderer::getPositionTexShader);
             RenderSystem.setShaderColor(1F, 1F, 1F, alpha);
             RenderSystem.setShaderTexture(0, noiseLoc);
-            GuiComponent.blit(ps, 0, 0, w, h, NOISE_RND.nextInt(NOISE_TEX), NOISE_RND.nextInt(NOISE_TEX),
-                    regionW, regionH, NOISE_TEX, NOISE_TEX);
+            float u0 = NOISE_RND.nextInt(NOISE_TEX), v0 = NOISE_RND.nextInt(NOISE_TEX);
+            // scratches = gaps in the grain (only in the portrait): the strips between the bands get the full grain, the bands almost none
+            int n = phase == 3 ? bandCount : 0;
+            int[] ba = new int[3], bb = new int[3];
+            for (int i = 0; i < n; i++) {
+                int th = Math.max(1, Math.round(BAND_T[i] * h / 1080F));
+                ba[i] = Math.round(BAND_Y[i] * (h - th));
+                bb[i] = ba[i] + th;
+            }
+            for (int i = 1; i < n; i++) {                // sort from the top
+                int a = ba[i], b = bb[i], j = i - 1;
+                while (j >= 0 && ba[j] > a) { ba[j + 1] = ba[j]; bb[j + 1] = bb[j]; j--; }
+                ba[j + 1] = a; bb[j + 1] = b;
+            }
+            int y = 0;
+            for (int i = 0; i < n; i++) {
+                int a = Math.max(y, ba[i]), b = Math.max(a, bb[i]);
+                noiseStrip(ps, w, y, a, u0, v0, g, alpha);
+                noiseStrip(ps, w, a, b, u0, v0, g, alpha * 0.08F);
+                y = b;
+            }
+            noiseStrip(ps, w, y, h, u0, v0, g, alpha);
             RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
             RenderSystem.disableBlend();
         } catch (Throwable ignored) {

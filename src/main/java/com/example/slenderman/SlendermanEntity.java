@@ -198,6 +198,8 @@ public class SlendermanEntity extends PathfinderMob {
     private static final boolean WALK = false;
     /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
     public static final int DEATH_PORTRAIT_TICKS = 40;
+    /** the portrait lasts a random 2 .. 2.5 s (40 .. 50 ticks). */
+    public static final int DEATH_PORTRAIT_MAX_TICKS = 50;
     public static final int DEATH_END_TICKS = 24;
     /** watcher mode: how far he stands (blocks), and when he vanishes because the player comes closer. */
     private static final double WATCH_MIN = 50.0D;
@@ -207,7 +209,7 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double WATCH_LOST_DIST = 100.0D;
     /** death scene: the view turns to his face for exactly 2 s (only when he was in view), then a sharp black screen for 2 s, then the portrait, then the death. */
     public static final int DEATH_TURN_TICKS = 40;
-    public static final int DEATH_BLACK_TICKS = 50;
+    public static final int DEATH_BLACK_TICKS = 30;     // the black screen before the portrait: 1.5 s
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
     /** closer than this and behind the player's back (roaming.ogg plays) he takes the sanity without being looked at. */
@@ -309,6 +311,8 @@ public class SlendermanEntity extends PathfinderMob {
     private int stuckSeconds = 0;
     private Vec3 stuckPos = null;
     private int deathPhase = 0;
+    /** how long the portrait lasts this time (ticks). */
+    private int portraitTicks = DEATH_PORTRAIT_TICKS;
     private int hopStepTicks = 0;
     private boolean watchPlaced = false;
     private int watchRepos = 0;
@@ -1356,7 +1360,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.action != ACTION_NONE) this.endAction();
         this.standStill();
         // the player cannot walk away during the scene
-        int total = (turn ? DEATH_TURN_TICKS : 0) + DEATH_BLACK_TICKS + DEATH_PORTRAIT_TICKS + DEATH_END_TICKS + 20;
+        int total = (turn ? DEATH_TURN_TICKS : 0) + DEATH_BLACK_TICKS + DEATH_PORTRAIT_MAX_TICKS + DEATH_END_TICKS + 20;
         player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, total, 6, false, false, false));
         return true;
     }
@@ -1484,12 +1488,13 @@ public class SlendermanEntity extends PathfinderMob {
         this.entityData.set(DATA_SANITY, lostNow);
         int limit = this.deathPhase == 1 ? DEATH_TURN_TICKS
                 : this.deathPhase == 2 ? DEATH_BLACK_TICKS
-                : this.deathPhase == 3 ? DEATH_PORTRAIT_TICKS : DEATH_END_TICKS;
+                : this.deathPhase == 3 ? this.portraitTicks : DEATH_END_TICKS;
         if (++this.deathTicks < limit) return;
         if (this.deathPhase < 4) {
             // 1 turn -> 2 black screen -> 3 portrait -> 4 last black screen -> the death
             this.deathPhase++;
             this.deathTicks = 0;
+            if (this.deathPhase == 3) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
             this.entityData.set(DATA_DEATH, this.deathPhase);
             return;
         }

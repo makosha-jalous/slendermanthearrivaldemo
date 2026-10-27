@@ -11,6 +11,9 @@ import net.minecraft.resources.ResourceLocation;
 public class SlendermanRenderer extends MobRenderer<SlendermanEntity, SlendermanModel> {
     private static final ResourceLocation TEXTURE =
             new ResourceLocation("slenderman", "textures/entity/slenderman.png");
+    /** the skin that is used only in the portrait of the death scene (the face and the shadows are painted on it). */
+    private static final ResourceLocation DEATH_TEXTURE =
+            new ResourceLocation("slenderman", "textures/entity/slenderman_death.png");
 
     public SlendermanRenderer(EntityRendererProvider.Context context) {
         super(context, new SlendermanModel(context.bakeLayer(SlendermanModel.LAYER)), 0.6F);
@@ -26,6 +29,6 @@ public class SlendermanRenderer extends MobRenderer<SlendermanEntity, Slenderman
 
     @Override
     public ResourceLocation getTextureLocation(SlendermanEntity entity) {
-        return TEXTURE;
+        return DeathSequenceClient.isPortrait() ? DEATH_TEXTURE : TEXTURE;
     }
 }
