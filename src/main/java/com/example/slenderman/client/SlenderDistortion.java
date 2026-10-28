@@ -145,6 +145,7 @@ public final class SlenderDistortion {
             // never break the game because of a graphics detail
         } finally {
             mc.getMainRenderTarget().bindWrite(false);      // whatever happened, the game picture is the target again
+            RenderSystem.enableCull();
             RenderSystem.colorMask(true, true, true, true);
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
@@ -258,6 +259,15 @@ public final class SlenderDistortion {
             RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
             quad(m, x0, y0, x1, y1, 0.78F, 0.80F, 0.76F, 0.30F + 0.20F * strength);
         }
+
+        // The second picture (work) never had its ALPHA written (the colour mask above switches it off), so it is 0 there, and the
+        // shader of the last step multiplies the picture with that alpha: everything came out fully transparent = no effect at all.
+        // Here the alpha of the rectangle is set to 1 (only the alpha channel is written).
+        RenderSystem.disableBlend();
+        RenderSystem.colorMask(false, false, false, true);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        quad(m, x0, y0, x1, y1, 1F, 1F, 1F, 1F);
+        RenderSystem.colorMask(true, true, true, false);
 
         // ---- 2) the finished effect goes onto the game picture, fading out towards the border of the rectangle
         main.bindWrite(false);
