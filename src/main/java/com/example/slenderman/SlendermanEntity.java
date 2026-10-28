@@ -73,13 +73,13 @@ public class SlendermanEntity extends PathfinderMob {
     /** ticks between two creeping teleports (2 seconds). */
     private static final int APPROACH_INTERVAL = 40;
     /** he never creeps closer than this (blocks). */
-    private static final double APPROACH_MIN = 2.5D;
+    private static final double APPROACH_MIN = 1.5D;
     /** ticks the client hides him after a teleport (disappear -> appear, no flying). */
     private static final int TELEPORT_HIDE_TICKS = 5;
 
     // ---- "critical" closeness ----
     /** closer than this = screamer zone (blocks). */
-    private static final double CRITICAL_RANGE = 6.0D;
+    private static final double CRITICAL_RANGE = 8.0D;
     /** closer than this his aggression level rises (blocks). */
     private static final double AGGRESSION_RANGE = 5.0D;
     /** aggression 0..1: full after 3.5 s close to the player, falls back slowly (10 s from full to zero). */
@@ -95,8 +95,8 @@ public class SlendermanEntity extends PathfinderMob {
     private static final int SCARE_COOLDOWN_MIN = 20 * 20;
     private static final int SCARE_COOLDOWN_RANDOM = 20 * 5;
     /** chance that a screamer sound also comes with the reaching animation / the slow bow (the rest: sound only). */
-    private static final float REACH_CHANCE = 0.40F;
-    private static final float BOW_CHANCE = 0.30F;
+    private static final float REACH_CHANCE = 0.70F;
+    private static final float BOW_CHANCE = 0.60F;
     /** after an animation the next one has to wait 40..60 seconds (he tries to "take" the player, not all the time). */
     private static final int ANIM_COOLDOWN_MIN = 20 * 40;
     private static final int ANIM_COOLDOWN_RANDOM = 20 * 20;
@@ -182,14 +182,14 @@ public class SlendermanEntity extends PathfinderMob {
     /** stages 1-2: the player stands still for 30 s -> he may appear in front of him. */
     private static final int IDLE_TICKS = 20 * 30;
     /** pages 3-7: the player stands still and does not look at him for this long (6 s) -> he walks right up behind his back. */
-    private static final int STILL_TICKS = 20 * 6;
+    private static final int STILL_TICKS = 20 * 1;
     /** how close he stands "right behind" the player (blocks, centre to centre). Touching him (hitboxes, about 0.7) kills; he never comes closer than about 2 blocks himself. */
     private static final double CONTACT_DIST = 1.6D;
     /** no teleport ever puts him closer than this to the player (blocks, horizontal): the hitboxes must never touch by a teleport. */
     private static final double TELEPORT_MIN_DIST = 1.1D;
-    /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 20-25, 3-4: 13-17, 5-6: 8-10, 7: 5-7. */
-    private static final double[] BAND_MIN = {20.0, 20.0, 20.0, 13.0, 13.0,  8.0,  8.0,  5.0,  5.0};
-    private static final double[] BAND_MAX = {25.0, 25.0, 25.0, 17.0, 17.0, 10.0, 10.0,  7.0,  7.0};
+    /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 30-35, 3-4: 13-17, 5-6: 6-7, 7: 3-4. */
+    private static final double[] BAND_MIN = {30.0, 30.0, 30.0, 13.0, 13.0,  6.0,  6.0,  3.0,  3.0};
+    private static final double[] BAND_MAX = {35.0, 35.0, 35.0, 17.0, 17.0, 7.0, 7.0,  4.0,  4.0};  
     /** "far behind" = farther than the band by this much. After 4 s of that (or of being stuck) he steps closer silently. */
     private static final double LAG_MARGIN = 14.0D;
     private static final int REPOSITION_TICKS = 80;
@@ -202,8 +202,8 @@ public class SlendermanEntity extends PathfinderMob {
     public static final int DEATH_PORTRAIT_MAX_TICKS = 50;
     public static final int DEATH_END_TICKS = 24;
     /** watcher mode: how far he stands (blocks), and when he vanishes because the player comes closer. */
-    private static final double WATCH_MIN = 50.0D;
-    private static final double WATCH_RANDOM = 12.0D;
+    private static final double WATCH_MIN = 80.0D;
+    private static final double WATCH_RANDOM = 20.0D;
     private static final double WATCH_FAR_CHANCE = 0.20D;
     private static final double WATCH_VANISH_DIST = 15.0D;
     private static final double WATCH_LOST_DIST = 100.0D;
