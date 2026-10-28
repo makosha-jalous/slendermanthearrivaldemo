@@ -88,7 +88,7 @@ public final class DeathSequenceClient {
     /** how dark the model is (colour multiplier): the clothes can barely be seen. */
     private static final float MODEL_DARK = 1.00F;     // the skin of the death scene is painted dark already: no extra darkening
     /** the glow behind him is 70 % darker than before (brightness x 0.30). */
-    private static final float GLOW_DIM = 0.30F;
+    private static final float GLOW_DIM = 0.50F;
     /** strength of the bending of the picture (share of the screen height). */
     private static final float WARP_STRENGTH = 0.055F;
     private static final Random FX_RND = new Random();
