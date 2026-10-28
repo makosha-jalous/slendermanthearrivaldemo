@@ -207,9 +207,9 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double WATCH_FAR_CHANCE = 0.20D;
     private static final double WATCH_VANISH_DIST = 15.0D;
     private static final double WATCH_LOST_DIST = 100.0D;
-    /** death scene: the view turns to his face for exactly 2 s (only when he was in view), then a sharp black screen for 2 s, then the portrait, then the death. */
-    public static final int DEATH_TURN_TICKS = 40;
-    public static final int DEATH_BLACK_TICKS = 30;     // the black screen before the portrait: 1.5 s
+    /** death scene: the view turns to his face for exactly 1.5 s (only when he was in view), then a sharp black screen for 1 s, then the portrait, then the death. */
+    public static final int DEATH_TURN_TICKS = 30;
+    public static final int DEATH_BLACK_TICKS = 20;     // the black screen before the portrait: 1 s
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
     /** closer than this and behind the player's back (roaming.ogg plays) he takes the sanity without being looked at. */
