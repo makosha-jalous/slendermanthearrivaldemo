@@ -60,6 +60,8 @@ public class SlendermanEntity extends PathfinderMob {
     /** death scene for the client: 0 = none, 1 = the view turns to his face (3 s), 2 = black screen (2 s), 3 = portrait (3 s), 4 = last black screen. */
     /** watcher mode: changes when he vanishes in front of the player (the camera answers with a very short static). */
     private static final EntityDataAccessor<Integer> DATA_BLIP = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
+    /** how long the view turns to his face in this death (ticks): the more sanity is already lost, the shorter. */
+    private static final EntityDataAccessor<Integer> DATA_TURN = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_DEATH = SynchedEntityData.defineId(SlendermanEntity.class, EntityDataSerializers.INT);
 
     /** switches the creeping teleports on/off (kept public: other classes may use it). */
@@ -209,6 +211,8 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double WATCH_LOST_DIST = 100.0D;
     /** death scene: the view turns to his face for exactly 1.5 s (only when he was in view), then a sharp black screen for 1 s, then the portrait, then the death. */
     public static final int DEATH_TURN_TICKS = 30;
+    /** the shortest turn (a loss close to 100): 1 s. */
+    public static final int DEATH_TURN_MIN_TICKS = 20;
     public static final int DEATH_BLACK_TICKS = 20;     // the black screen before the portrait: 1 s
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
@@ -355,6 +359,7 @@ public class SlendermanEntity extends PathfinderMob {
         this.entityData.define(DATA_SANITY, 0.0F);
         this.entityData.define(DATA_TELEPORT, 0);
         this.entityData.define(DATA_DEATH, 0);
+        this.entityData.define(DATA_TURN, DEATH_TURN_TICKS);
         this.entityData.define(DATA_BLIP, 0);
     }
 
@@ -374,6 +379,13 @@ public class SlendermanEntity extends PathfinderMob {
 
     /** 0 = nothing, 1 = the view of the victim turns to his face, 2 = black screen before the death. */
     public int getDeathPhase() { return this.entityData.get(DATA_DEATH); }
+    /** the length of the turn to his face in ticks (read by the client camera). */
+    public int getTurnTicks() { return this.entityData.get(DATA_TURN); }
+    /** DEATH_TURN_TICKS with no loss, DEATH_TURN_MIN_TICKS when the sanity is already at 100: running at him for long = he is on you quicker. */
+    public static int turnTicksFor(float lost) {
+        float k = Mth.clamp(lost / SlenderSanity.MAX, 0.0F, 1.0F);
+        return Math.round(Mth.lerp(k, (float) DEATH_TURN_TICKS, (float) DEATH_TURN_MIN_TICKS));
+    }
 
     /** changes when the watcher vanishes in front of the player (camera: a ~60 ms static). */
     public int getBlipCue() { return this.entityData.get(DATA_BLIP); }
@@ -1354,6 +1366,7 @@ public class SlendermanEntity extends PathfinderMob {
         this.deathPhase = turn ? 1 : 2;
         this.deathTicks = 0;
         this.deathSanityStart = SlenderSanity.get(player);
+        this.entityData.set(DATA_TURN, turnTicksFor(this.deathSanityStart));
         this.entityData.set(DATA_DEATH, this.deathPhase);
         this.vanished = false;
         this.setInvisible(false);
@@ -1481,12 +1494,12 @@ public class SlendermanEntity extends PathfinderMob {
         // during the turn the sanity rises evenly to 100 (the camera follows it), afterwards it stays at 100
         float lostNow = SlenderSanity.MAX;
         if (this.deathPhase == 1) {
-            lostNow = Mth.lerp(Mth.clamp((float) this.deathTicks / (float) DEATH_TURN_TICKS, 0.0F, 1.0F),
+            lostNow = Mth.lerp(Mth.clamp((float) this.deathTicks / (float) Math.max(1, this.getTurnTicks()), 0.0F, 1.0F),
                     this.deathSanityStart, SlenderSanity.MAX);
         }
         SlenderSanity.set(victim, lostNow);
         this.entityData.set(DATA_SANITY, lostNow);
-        int limit = this.deathPhase == 1 ? DEATH_TURN_TICKS
+        int limit = this.deathPhase == 1 ? Math.max(1, this.getTurnTicks())
                 : this.deathPhase == 2 ? DEATH_BLACK_TICKS
                 : this.deathPhase == 3 ? this.portraitTicks : DEATH_END_TICKS;
         if (++this.deathTicks < limit) return;

@@ -51,8 +51,8 @@ public final class SlenderDistortion {
     /** how often the dice are thrown (ms): 16 = about 60 times a second whatever the FPS is. */
     private static final long ROLL_MS = 16L;
     /** how far the rectangle reaches beyond his body (blocks, to the sides / up and down). */
-    private static final double PAD_SIDE = 0.7D;
-    private static final double PAD_UPDOWN = 0.25D;
+    private static final double PAD_SIDE = 1.9D;        // much wider than his body, like the plane of the original (was 0.7)
+    private static final double PAD_UPDOWN = 0.45D;
     /** the waving sideways (share of the rectangle width). */
     private static final float WAVE = 0.07F;
     /** the shift of the colour channels (share of the rectangle width). */
@@ -73,6 +73,20 @@ public final class SlenderDistortion {
     private static final int HI = 24, HJ = 40;
     /** our extra colours (contrast, burnt, washed out) that are NOT in the original shader: false = the pure original. */
     private static final boolean EXTRA_COLOR = false;
+
+    // ---- chromatic aberration inside the rectangle (always, together with the heat waves)
+    /** how far the red and the blue picture are pushed apart (share of the screen width). */
+    private static final float CA_SHIFT = 0.0055F;
+    /** the aberration is a bit stronger than the plain heat: it is also seen far away. */
+    private static final float CA_ALPHA_BOOST = 1.8F;
+
+    // ---- "overexposure" burst when he is close: burnt light, brown blacks (sepia), like flashes together with the distortion
+    private static final double EXPOSE_FAR = 9.0D;      // starts at this distance (blocks) ...
+    private static final double EXPOSE_NEAR = 4.0D;     // ... and is at its full strength at this distance
+    /** how strong (0..1 each): the light is pushed up, the blacks turn brown, the colours burn out. */
+    private static final float EXPOSE_LIGHT = 0.55F;
+    private static final float EXPOSE_BROWN = 0.40F;
+    private static final float EXPOSE_SEPIA = 0.30F;
 
     // ---------------------------------------------------------------- state
     private static final RandomSource RNG = RandomSource.create();
@@ -246,6 +260,7 @@ public final class SlenderDistortion {
         RenderSystem.setShaderTexture(0, copy.getColorTextureId());
         RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
         heat(m, r, gw, gh);
+        exposure(m, r, gw, gh);
 
         // ---- optional extra colours of our version (contrast up, burnt / washed out), soft at the border
         if (EXTRA_COLOR) {
@@ -300,14 +315,13 @@ public final class SlenderDistortion {
         return a + (b - a) * fy;
     }
 
-    /** the net of the rectangle: every vertex reads the screen from a shifted place (see the description above). */
+    /** the net of the rectangle: every vertex reads the screen from a shifted place (see the description above).
+     *  Drawn three times, one colour channel each, the red and the blue picture pushed apart = chromatic aberration. */
     private static void heat(Matrix4f m, float[] r, int gw, int gh) {
         float x0 = r[0] * gw, x1 = r[2] * gw, y0 = (1F - r[3]) * gh, y1 = (1F - r[1]) * gh;
         float depth = r[4];
         float t = (System.nanoTime() / 1_000_000L % 3_600_000L) / 1000F;        // _Time.y in seconds
         float base = STRENGTH / (1F + depth);
-        BufferBuilder b = Tesselator.getInstance().getBuilder();
-        b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
         float[][] px = new float[HI + 1][HJ + 1], py = new float[HI + 1][HJ + 1];
         float[][] pu = new float[HI + 1][HJ + 1], pv = new float[HI + 1][HJ + 1], pa = new float[HI + 1][HJ + 1];
         for (int j = 0; j <= HJ; j++) {
@@ -323,18 +337,48 @@ public final class SlenderDistortion {
                 py[i][j] = y0 + (y1 - y0) * tj;
                 pu[i][j] = r[0] + (r[2] - r[0]) * ti + amount * ox;
                 pv[i][j] = r[3] - (r[3] - r[1]) * tj + amount * oy;
-                pa[i][j] = Math.min(1F, amount / TRANSPARENCY);
+                pa[i][j] = Math.min(1F, amount / TRANSPARENCY * CA_ALPHA_BOOST * w);
             }
         }
-        for (int j = 0; j < HJ; j++) {
-            for (int i = 0; i < HI; i++) {
-                b.vertex(m, px[i][j], py[i][j], 0F).color(1F, 1F, 1F, pa[i][j]).uv(pu[i][j], pv[i][j]).endVertex();
-                b.vertex(m, px[i][j + 1], py[i][j + 1], 0F).color(1F, 1F, 1F, pa[i][j + 1]).uv(pu[i][j + 1], pv[i][j + 1]).endVertex();
-                b.vertex(m, px[i + 1][j + 1], py[i + 1][j + 1], 0F).color(1F, 1F, 1F, pa[i + 1][j + 1]).uv(pu[i + 1][j + 1], pv[i + 1][j + 1]).endVertex();
-                b.vertex(m, px[i + 1][j], py[i + 1][j], 0F).color(1F, 1F, 1F, pa[i + 1][j]).uv(pu[i + 1][j], pv[i + 1][j]).endVertex();
+        float ca = CA_SHIFT * (0.7F + 0.3F * strength);
+        // channel passes: red picture shifted one way, green in the middle, blue the other way
+        for (int pass = 0; pass < 3; pass++) {
+            RenderSystem.colorMask(pass == 0, pass == 1, pass == 2, false);
+            float du = (pass - 1) * ca;
+            BufferBuilder b = Tesselator.getInstance().getBuilder();
+            b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
+            for (int j = 0; j < HJ; j++) {
+                for (int i = 0; i < HI; i++) {
+                    b.vertex(m, px[i][j], py[i][j], 0F).color(1F, 1F, 1F, pa[i][j]).uv(pu[i][j] + du, pv[i][j]).endVertex();
+                    b.vertex(m, px[i][j + 1], py[i][j + 1], 0F).color(1F, 1F, 1F, pa[i][j + 1]).uv(pu[i][j + 1] + du, pv[i][j + 1]).endVertex();
+                    b.vertex(m, px[i + 1][j + 1], py[i + 1][j + 1], 0F).color(1F, 1F, 1F, pa[i + 1][j + 1]).uv(pu[i + 1][j + 1] + du, pv[i + 1][j + 1]).endVertex();
+                    b.vertex(m, px[i + 1][j], py[i + 1][j], 0F).color(1F, 1F, 1F, pa[i + 1][j]).uv(pu[i + 1][j] + du, pv[i + 1][j]).endVertex();
+                }
             }
+            BufferUploader.drawWithShader(b.end());
         }
-        BufferUploader.drawWithShader(b.end());
+        RenderSystem.colorMask(true, true, true, false);
+    }
+
+    /** when he is close: a burst of overexposure inside the rectangle (light pushed up, blacks turn brown, colours burn out). */
+    private static void exposure(Matrix4f m, float[] r, int gw, int gh) {
+        float d = r[4];
+        float k = Mth.clamp((float) ((EXPOSE_FAR - d) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
+        if (k <= 0.001F) return;
+        k = k * k * (3F - 2F * k);
+        float x0 = r[0] * gw, x1 = r[2] * gw, y0 = (1F - r[3]) * gh, y1 = (1F - r[1]) * gh;
+        float flash = 0.55F + 0.45F * strength;          // the flashes: a new strength every moment the distortion is on
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        // 1) the exposure is turned up: lights get brighter (2 * src * dst)
+        float up = 0.5F + 0.5F * EXPOSE_LIGHT * k * flash * 0.5F;
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.DST_COLOR, GlStateManager.DestFactor.SRC_COLOR);
+        softQuad(m, x0, y0, x1, y1, up, up, up, 0.5F, 0.5F, 0.5F, true);
+        // 2) a warm light is added: black becomes brown
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        softQuad(m, x0, y0, x1, y1, 0.95F, 0.62F, 0.30F, 0F, 0F, 0F, false, EXPOSE_BROWN * k * flash);
+        // 3) the colours burn out a little: sepia over everything
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+        softQuad(m, x0, y0, x1, y1, 0.72F, 0.55F, 0.36F, 0F, 0F, 0F, false, EXPOSE_SEPIA * k * flash);
     }
 
     /** a colour rectangle whose border is neutral / transparent: multiply mode fades to (nr,ng,nb), the other modes to alpha 0. */

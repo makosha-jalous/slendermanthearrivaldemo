@@ -76,8 +76,27 @@ public final class SlenderSanity {
     /** the distance (blocks) in which the loss halves; the original uses 5 (2^(-distance*2/10)). */
     public static final double HALVING_DIST = 5.0D;
 
+    // ---- a more aggressive close range (the original curve gives 2.3 s at 1 block, 2.6 s at 2, 3.0 s at 3) ----
+    /** closer than this the times below are used instead of the curve (at 3 blocks they meet the curve, so there is no jump). */
+    public static final double CLOSE_FULL_DIST = 3.0D;
+    /** seconds from 0 to 100: at 1 block (and closer) ... */
+    public static final double CLOSE_SECONDS_1 = 1.5D;
+    /** ... at 2 blocks ... */
+    public static final double CLOSE_SECONDS_2 = 2.0D;
+
+    /** seconds from 0 to 100 at a distance closer than CLOSE_FULL_DIST: 1.5 s (1 block) .. 2 s (2 blocks) .. the curve (3 blocks). */
+    public static double closeSeconds(double dist) {
+        double atFull = 100.0D / (ORIGINAL_STEPS_PER_SECOND * Math.pow(2.0D, -CLOSE_FULL_DIST / HALVING_DIST));
+        if (dist <= 1.0D) return CLOSE_SECONDS_1;
+        if (dist <= 2.0D) return CLOSE_SECONDS_1 + (CLOSE_SECONDS_2 - CLOSE_SECONDS_1) * (dist - 1.0D);
+        return CLOSE_SECONDS_2 + (atFull - CLOSE_SECONDS_2) * (dist - 2.0D);
+    }
+
     /** points of loss per Minecraft tick while he is in view, by the distance in blocks. */
     public static float lossPerTick(double dist) {
+        if (dist < CLOSE_FULL_DIST) {
+            return (float) (MAX / (closeSeconds(dist) * 20.0D));
+        }
         if (ORIGINAL_CURVE) {
             return (float) (ORIGINAL_STEPS_PER_SECOND / TICKS_PER_SECOND * Math.pow(2.0D, -dist / HALVING_DIST));
         }
