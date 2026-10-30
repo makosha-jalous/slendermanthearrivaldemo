@@ -16,6 +16,9 @@ import com.mojang.math.Matrix4f;
 import com.mojang.math.Vector4f;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.ShaderInstance;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.client.event.RegisterShadersEvent;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
@@ -68,7 +71,11 @@ public final class SlenderDistortion {
     private static final float STRENGTH = 0.2F;
     private static final float TRANSPARENCY = 0.05F;
     /** how many times the noise texture repeats over the rectangle (the tiling of the original is not known). */
-    private static final float NOISE_TILE = 1.0F;
+    private static final float NOISE_TILE_U = 1.0F;
+    /** the waves are long vertical streaks, like in the original picture: the noise is finer from top to bottom. */
+    private static final float NOISE_TILE_V = 3.0F;
+    /** how much stronger the bending is than the plain formula (the original bends the picture a lot). */
+    private static final float DISPLACE_GAIN = 2.5F;
     /** the net of the heat waves. */
     private static final int HI = 24, HJ = 40;
     /** our extra colours (contrast, burnt, washed out) that are NOT in the original shader: false = the pure original. */
@@ -83,10 +90,28 @@ public final class SlenderDistortion {
     // ---- "overexposure" burst when he is close: burnt light, brown blacks (sepia), like flashes together with the distortion
     private static final double EXPOSE_FAR = 9.0D;      // starts at this distance (blocks) ...
     private static final double EXPOSE_NEAR = 4.0D;     // ... and is at its full strength at this distance
-    /** how strong (0..1 each): the light is pushed up, the blacks turn brown, the colours burn out. */
+    /** inside the rectangle (the shader): the colours fade (0..1), the contrast and the brightness are pushed up. NOT a colour layer. */
+    private static final float EXPOSE_DESAT = 0.55F;
+    private static final float EXPOSE_CONTRAST = 0.55F;
+    private static final float EXPOSE_BRIGHT = 0.45F;
+    /** the same, only light, for the case the small shader could not be loaded. */
     private static final float EXPOSE_LIGHT = 0.55F;
-    private static final float EXPOSE_BROWN = 0.40F;
-    private static final float EXPOSE_SEPIA = 0.30F;
+
+    /** the small shader of the distortion (assets/slenderman/shaders/core/slender_distort.*), null if it could not be loaded. */
+    private static ShaderInstance fx;
+
+    @Mod.EventBusSubscriber(modid = SlendermanMod.ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+    public static final class Reg {
+        @SubscribeEvent
+        public static void onShaders(RegisterShadersEvent e) {
+            try {
+                e.registerShader(new ShaderInstance(e.getResourceProvider(), new ResourceLocation(SlendermanMod.ID, "slender_distort"),
+                        DefaultVertexFormat.POSITION_COLOR_TEX), inst -> fx = inst);
+            } catch (Throwable t) {
+                fx = null;      // without it the older way (three colour passes) is used
+            }
+        }
+    }
 
     // ---------------------------------------------------------------- state
     private static final RandomSource RNG = RandomSource.create();
@@ -260,7 +285,7 @@ public final class SlenderDistortion {
         RenderSystem.setShaderTexture(0, copy.getColorTextureId());
         RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
         heat(m, r, gw, gh);
-        exposure(m, r, gw, gh);
+        if (fx == null) exposure(m, r, gw, gh);
 
         // ---- optional extra colours of our version (contrast up, burnt / washed out), soft at the border
         if (EXTRA_COLOR) {
@@ -330,17 +355,37 @@ public final class SlenderDistortion {
                 float ti = (float) i / HI;
                 float w = edgeWeight(ti) * edgeWeight(tj);          // stands for (normal . view)
                 float amount = base * w * w;
-                float tu = ti * NOISE_TILE, tv = tj * NOISE_TILE;
+                float tu = ti * NOISE_TILE_U, tv = tj * NOISE_TILE_V;
                 float ox = noise(NOISE_R, tu + t / 20F, tv + 2F * t) + noise(NOISE_R, tu - t, tv - t / 20F) - 1F;
                 float oy = noise(NOISE_G, tu + t / 20F, tv + 2F * t) + noise(NOISE_G, tu - t, tv - t / 20F) - 1F;
                 px[i][j] = x0 + (x1 - x0) * ti;
                 py[i][j] = y0 + (y1 - y0) * tj;
-                pu[i][j] = r[0] + (r[2] - r[0]) * ti + amount * ox;
-                pv[i][j] = r[3] - (r[3] - r[1]) * tj + amount * oy;
+                pu[i][j] = r[0] + (r[2] - r[0]) * ti + amount * DISPLACE_GAIN * ox;
+                pv[i][j] = r[3] - (r[3] - r[1]) * tj + amount * DISPLACE_GAIN * 0.5F * oy;
                 pa[i][j] = Math.min(1F, amount / TRANSPARENCY * CA_ALPHA_BOOST * w);
             }
         }
         float ca = CA_SHIFT * (0.7F + 0.3F * strength);
+        if (fx != null) {
+            // one pass: bending + chromatic aberration + (near him) faded colours, more contrast and brightness
+            float k = Mth.clamp((float) ((EXPOSE_FAR - depth) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
+            k = k * k * (3F - 2F * k) * (0.55F + 0.45F * strength);   // the flashes: a new strength every moment
+            RenderSystem.setShader(() -> fx);
+            RenderSystem.setShaderTexture(0, copy.getColorTextureId());
+            fx.safeGetUniform("Effect").set(EXPOSE_DESAT * k, EXPOSE_CONTRAST * k, EXPOSE_BRIGHT * k, ca);
+            BufferBuilder b = Tesselator.getInstance().getBuilder();
+            b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
+            for (int j = 0; j < HJ; j++) {
+                for (int i = 0; i < HI; i++) {
+                    b.vertex(m, px[i][j], py[i][j], 0F).color(1F, 1F, 1F, pa[i][j]).uv(pu[i][j], pv[i][j]).endVertex();
+                    b.vertex(m, px[i][j + 1], py[i][j + 1], 0F).color(1F, 1F, 1F, pa[i][j + 1]).uv(pu[i][j + 1], pv[i][j + 1]).endVertex();
+                    b.vertex(m, px[i + 1][j + 1], py[i + 1][j + 1], 0F).color(1F, 1F, 1F, pa[i + 1][j + 1]).uv(pu[i + 1][j + 1], pv[i + 1][j + 1]).endVertex();
+                    b.vertex(m, px[i + 1][j], py[i + 1][j], 0F).color(1F, 1F, 1F, pa[i + 1][j]).uv(pu[i + 1][j], pv[i + 1][j]).endVertex();
+                }
+            }
+            BufferUploader.drawWithShader(b.end());
+            return;
+        }
         // channel passes: red picture shifted one way, green in the middle, blue the other way
         for (int pass = 0; pass < 3; pass++) {
             RenderSystem.colorMask(pass == 0, pass == 1, pass == 2, false);
@@ -373,12 +418,6 @@ public final class SlenderDistortion {
         float up = 0.5F + 0.5F * EXPOSE_LIGHT * k * flash * 0.5F;
         RenderSystem.blendFunc(GlStateManager.SourceFactor.DST_COLOR, GlStateManager.DestFactor.SRC_COLOR);
         softQuad(m, x0, y0, x1, y1, up, up, up, 0.5F, 0.5F, 0.5F, true);
-        // 2) a warm light is added: black becomes brown
-        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-        softQuad(m, x0, y0, x1, y1, 0.95F, 0.62F, 0.30F, 0F, 0F, 0F, false, EXPOSE_BROWN * k * flash);
-        // 3) the colours burn out a little: sepia over everything
-        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
-        softQuad(m, x0, y0, x1, y1, 0.72F, 0.55F, 0.36F, 0F, 0F, 0F, false, EXPOSE_SEPIA * k * flash);
     }
 
     /** a colour rectangle whose border is neutral / transparent: multiply mode fades to (nr,ng,nb), the other modes to alpha 0. */
