@@ -105,7 +105,7 @@ public final class SlenderDistortion {
         @SubscribeEvent
         public static void onShaders(RegisterShadersEvent e) {
             try {
-                e.registerShader(new ShaderInstance(e.getResourceProvider(), new ResourceLocation(SlendermanMod.ID, "slender_distort"),
+                e.registerShader(new ShaderInstance(e.getResourceManager(), new ResourceLocation(SlendermanMod.ID, "slender_distort"),
                         DefaultVertexFormat.POSITION_COLOR_TEX), inst -> fx = inst);
             } catch (Throwable t) {
                 fx = null;      // without it the older way (three colour passes) is used
