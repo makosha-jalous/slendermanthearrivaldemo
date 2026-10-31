@@ -387,6 +387,53 @@ public final class DeathSequenceClient {
         lastNoiseMs = 0L;                                        // a fresh grain picture with every step
     }
 
+    // ------------------------------------------------------------------------------------------
+    //  THE RETRY MENU (SlenderRetryScreen): the same 20 ms steps and the same kind of dice as the portrait, so the letters are
+    //  bent by the fisheye exactly like the interface of the camera: stretched and squeezed, with the colour split.
+    // ------------------------------------------------------------------------------------------
+    private static final float RETRY_P = 0.55F;          // the chance that a 20 ms step is bent
+    private static final float RETRY_LOSS = 60F;         // strength of the bending (the same formula as the portrait)
+    private static long retryProcessed = -1L;
+
+    static void retryBegin() {
+        epochNs = System.nanoTime();
+        retryProcessed = -1L;
+        fishX = fishY = caNow = 0F;
+        lastNoiseMs = 0L;
+    }
+
+    static float retryChroma() {
+        return caNow;
+    }
+
+    static void retryStep() {
+        long cur = currentStep(0L);
+        if (cur < 0L) return;
+        if (retryProcessed < 0L) retryProcessed = Math.max(-1L, cur - 1L);
+        int n = 0;
+        while (retryProcessed < cur && n < 12) {
+            retryProcessed++;
+            long s = retryProcessed;
+            boolean on = rnd(s, 41) < RETRY_P;
+            float I = RETRY_LOSS;
+            if (on) {
+                caNow = Mth.clamp(range(s, 42, 0.2F, 1.5F * I + 50F) / 200F, 0F, 1F);
+                if (rnd(s, 43) > 0.85F) {
+                    fishY = range(s, 44, -0.01F * (100F - I), 0.005F * (100F - I));
+                } else if (rnd(s, 45) > 0.75F) {
+                    fishX = range(s, 46, -0.01F * (100F - I), 0.005F * (100F - I));
+                }
+            } else {
+                caNow = 0F;
+                fishX = 0F;
+                fishY = 0F;
+            }
+            lastNoiseMs = 0L;                              // a fresh grain picture with every step
+            n++;
+        }
+        if (retryProcessed < cur) retryProcessed = cur;
+    }
+
     /** runs the steps that have passed since the last frame (called every rendered frame during the portrait). */
     @SubscribeEvent
     public static void onRenderTick(TickEvent.RenderTickEvent e) {
@@ -607,7 +654,7 @@ public final class DeathSequenceClient {
      */
     private static float caScale = 0F;
 
-    private static void drawBentScene(PoseStack ps, int w, int h, float chroma) {
+    static void drawBentScene(PoseStack ps, int w, int h, float chroma) {
         try {
             Minecraft mc = Minecraft.getInstance();
             RenderTarget main = mc.getMainRenderTarget();
@@ -768,7 +815,7 @@ public final class DeathSequenceClient {
         GuiComponent.blit(ps, 0, ya, w, yb - ya, u0, v0 + (float) (ya * g), regionW, regionH, NOISE_TEX, NOISE_TEX);
     }
 
-    private static void drawNoise(PoseStack ps, int w, int h, float alpha) {
+    static void drawNoise(PoseStack ps, int w, int h, float alpha) {
         Minecraft mc = Minecraft.getInstance();
         try {
             if (noise == null) {
