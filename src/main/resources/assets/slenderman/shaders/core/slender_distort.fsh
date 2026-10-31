@@ -17,7 +17,7 @@ void main() {
     c.b = texture(Sampler0, texCoord0 - vec2(Effect.w, 0.0)).b;
     float l = dot(c, vec3(0.299, 0.587, 0.114));
     c = mix(c, vec3(l), Effect.x);                  // the colours fade
-    c = (c - 0.3) * (1.0 + Effect.y) + 0.3;         // dark stays dark, light gets brighter
+    c = (c - 0.12) * (1.0 + Effect.y) + 0.12;       // dark goes black, light is burnt out to white (like the video of the original)
     c *= 1.0 + Effect.z;                            // the exposure is turned up
     fragColor = vec4(clamp(c, 0.0, 1.0), vertexColor.a * ColorModulator.a);
 }

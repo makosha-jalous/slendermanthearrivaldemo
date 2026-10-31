@@ -77,7 +77,7 @@ public class SlendermanEntity extends PathfinderMob {
     /** he never creeps closer than this (blocks). */
     private static final double APPROACH_MIN = 1.5D;
     /** ticks the client hides him after a teleport (disappear -> appear, no flying). */
-    private static final int TELEPORT_HIDE_TICKS = 5;
+    private static final int TELEPORT_HIDE_TICKS = 0;   // 0 = a teleport is instant: he is gone here and there at the same moment (was 5 ticks of nothing)
 
     // ---- "critical" closeness ----
     /** closer than this = screamer zone (blocks). */
@@ -264,6 +264,14 @@ public class SlendermanEntity extends PathfinderMob {
 
     private int approachTicks = 0;
     private int tpHideTicks = 0;
+    /** a much wider cone than "seen": while he is inside it (or was a moment ago) he does NOT move, jump or teleport at all. */
+    private static final double WIDE_SEEN_COS = 0.25D;         // about 75 degrees to each side: wider than any screen
+    /** how many ticks the player must have looked away before he may move (the server sees the player's turn a little late). */
+    private static final int MOVE_GRACE_TICKS = 4;
+    private int wideUnseen = 99;
+    /** from this page on (6 and 7) he stays within STICK_DIST blocks behind the player, walking or not (roaming + sanity start at 3). */
+    private static final int STICK_FROM_STAGE = 6;
+    private static final double STICK_DIST = 2.6D;
     private int lastTeleportTick = -100;
     private boolean prevSeen = false;
     private double prevDist = -1.0D;
@@ -434,6 +442,27 @@ public class SlendermanEntity extends PathfinderMob {
     @Override
     protected float getStandingEyeHeight(Pose pose, EntityDimensions dimensions) { return 3.7F; }
 
+    /**
+     * The client must NOT slide him from the old spot to the new one (that is the "flies through the air" you could see):
+     * a jump of more than one block moves him there at once, also for the picture between two ticks.
+     */
+    @Override
+    public void lerpTo(double x, double y, double z, float yRot, float xRot, int steps, boolean teleport) {
+        double dx = x - this.getX(), dy = y - this.getY(), dz = z - this.getZ();
+        if (dx * dx + dy * dy + dz * dz > 1.0D) {
+            this.setPos(x, y, z);
+            this.xo = x; this.yo = y; this.zo = z;
+            this.xOld = x; this.yOld = y; this.zOld = z;
+            this.setYRot(yRot); this.setXRot(xRot);
+            this.yRotO = yRot; this.xRotO = xRot;
+            this.yBodyRot = yRot; this.yBodyRotO = yRot;
+            this.yHeadRot = yRot; this.yHeadRotO = yRot;
+            this.lerpSteps = 0;
+            return;
+        }
+        super.lerpTo(x, y, z, yRot, xRot, steps, teleport);
+    }
+
     @Override
     public boolean isPushable() { return false; }
 
@@ -507,6 +536,8 @@ public class SlendermanEntity extends PathfinderMob {
         }
         boolean seen = this.isSeenBy(player);
         double dist = this.distanceTo(player);
+        // the wide cone: he moves ONLY when the player has not had him anywhere near the screen for a few ticks
+        this.wideUnseen = this.isSeenBy(player, WIDE_SEEN_COS) ? 0 : this.wideUnseen + 1;
 
         // watcher mode: he only watches from far away, nothing else
         if (SlenderModes.isWatch(player)) {
@@ -582,7 +613,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (lost >= TENTACLE_SANITY) this.tentGoal = true;
         else if (lost < TENTACLE_SANITY - 5.0F) this.tentGoal = false;
         this.updateTentacles(this.tentGoal);
-        if (!god) this.contactDamage(player, dist);
+        // (no damage in hearts from touching him any more: the sanity goes down, and a touch is always the one-hit death above)
 
         // ---- screamers ----
         if (!this.vanished && this.action == ACTION_NONE) {
@@ -663,7 +694,7 @@ public class SlendermanEntity extends PathfinderMob {
         }
 
         boolean walking = false;
-        if (seen) {
+        if (seen || this.wideUnseen < MOVE_GRACE_TICKS) {
             // the player is watching: he stops and stands dead still, head level and straight ahead (does NOT look at the player)
             this.approachTicks = 0;
             this.huntTicks = 0;
@@ -716,7 +747,10 @@ public class SlendermanEntity extends PathfinderMob {
     private boolean pursue(Player player, double dist) {
         int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
         boolean close = st >= 3 && this.idleTicks >= STILL_TICKS;
-        double wantMax = close ? CONTACT_DIST : BAND_MAX[st];
+        // pages 6 and 7, also while the player WALKS: he sticks right behind the back (closer than 3 blocks), so roaming.ogg
+        // plays and the sanity falls even when the player does not look at him (like in the original)
+        boolean stick = st >= STICK_FROM_STAGE;
+        double wantMax = close ? CONTACT_DIST : (stick ? STICK_DIST : BAND_MAX[st]);
         double tol = close ? 0.1D : 0.3D;   // right behind the player he stops at about 2.2 blocks, never closer
         double baseSpeed = WALK_SPEED * WALK_MOD[st];
 
@@ -762,7 +796,7 @@ public class SlendermanEntity extends PathfinderMob {
             return false;
         }
         // the player runs away: he does not run after him, he appears closer (behind / beside the runner)
-        if (this.playerSpeed > RUN_SPEED && dist > wantMax + FLEE_GAP) {
+        if (!stick && this.playerSpeed > RUN_SPEED && dist > wantMax + FLEE_GAP) {
             if (autoTeleport && ++this.chaseTicks >= CHASE_TICKS) {
                 this.chaseTicks = 0;
                 if (this.teleportNear(player, TeleportKind.CHASE)) return false;
@@ -786,12 +820,35 @@ public class SlendermanEntity extends PathfinderMob {
         // no walking animation: while nobody looks he appears a few blocks closer (silently), faces the player
         // and stands still again - the faster the more pages there are
         int interval = Math.max(10, Math.round((float) (24.0D / Math.max(0.5D, WALK_MOD[st]))));
+        if (stick && !close) interval = 4;      // a walking player is caught up with every 0.2 s
         if (autoTeleport && ++this.hopStepTicks >= interval) {
             this.hopStepTicks = 0;
+            if (stick && !close && this.stepBehind(player)) return false;
             double step = Mth.clamp(3.5D * WALK_MOD[st] * catchUp, 2.0D, 12.0D);
             this.suppressTeleportCue = true;
             this.creepCloser(player, step, close ? CONTACT_DIST : wantMax - 1.0D);
             this.suppressTeleportCue = false;
+        }
+        return false;
+    }
+
+    /** pages 6-7: he appears right behind the player's back (about STICK_DIST blocks), silently and never in front. */
+    private boolean stepBehind(Player player) {
+        Vec3 look = player.getLookAngle();
+        double base = Math.atan2(look.z, look.x) + Math.PI;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * (attempt < 5 ? 30.0D : 90.0D));
+            double d = STICK_DIST - 0.3D + this.random.nextDouble() * 0.5D;
+            double x = player.getX() + Math.cos(angle) * d;
+            double z = player.getZ() + Math.sin(angle) * d;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
+            double y = this.findGround(x, z, player.getY(), attempt < 6 ? 4.0D : 3.0D);
+            if (Double.isNaN(y)) continue;
+            float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
+            this.suppressTeleportCue = true;
+            this.relocate(x, y, z, yaw);
+            this.suppressTeleportCue = false;
+            return true;
         }
         return false;
     }
@@ -1052,7 +1109,8 @@ public class SlendermanEntity extends PathfinderMob {
             this.teleportArmed = false;
             return false;
         }
-        boolean mayNow = !seen || st >= 7 || (st <= 2 && this.observedTicks >= STARE_TICKS);
+        // the punishment for a long stare stays: on the 7th page (and on pages 1-2 after a long stare) he may act in view
+        boolean mayNow = this.wideUnseen >= MOVE_GRACE_TICKS || st >= 7 || (st <= 2 && this.observedTicks >= STARE_TICKS);
         if (!mayNow) return false;
         this.teleportArmed = false;
         return this.abilityTeleport(player, seen, dist);
@@ -1657,8 +1715,10 @@ public class SlendermanEntity extends PathfinderMob {
         this.action = ACTION_NONE;
         this.entityData.set(DATA_ACTION, ACTION_NONE);
         this.entityData.set(DATA_PROGRESS, 0.0F);
-        this.tpHideTicks = TELEPORT_HIDE_TICKS;
-        this.entityData.set(DATA_HIDDEN, true);
+        if (TELEPORT_HIDE_TICKS > 0) {
+            this.tpHideTicks = TELEPORT_HIDE_TICKS;
+            this.entityData.set(DATA_HIDDEN, true);
+        }
         this.lastTeleportTick = this.tickCount;
         this.keepChunkLoaded();
         if (longJump && !this.suppressTeleportCue) this.signalTeleport();
@@ -1759,6 +1819,10 @@ public class SlendermanEntity extends PathfinderMob {
     }
 
     private boolean isSeenBy(Player player) {
+        return this.isSeenBy(player, SEEN_COS);
+    }
+
+    private boolean isSeenBy(Player player, double minCos) {
         Vec3 eye = player.getEyePosition();
         Vec3 view = player.getViewVector(1.0F).normalize();
         for (double h : new double[]{3.6D, 2.6D, 1.4D, 0.4D}) {
@@ -1766,7 +1830,7 @@ public class SlendermanEntity extends PathfinderMob {
             Vec3 to = p.subtract(eye);
             double len = to.length();
             if (len < 0.5D) return true;
-            if (view.dot(to.scale(1.0D / len)) < SEEN_COS) continue;
+            if (view.dot(to.scale(1.0D / len)) < minCos) continue;
             BlockHitResult hit = this.level.clip(new ClipContext(eye, p, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
             if (hit.getType() == HitResult.Type.MISS || hit.getLocation().distanceToSqr(p) < 0.25D) return true;
         }

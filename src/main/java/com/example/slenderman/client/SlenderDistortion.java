@@ -91,9 +91,12 @@ public final class SlenderDistortion {
     private static final double EXPOSE_FAR = 9.0D;      // starts at this distance (blocks) ...
     private static final double EXPOSE_NEAR = 4.0D;     // ... and is at its full strength at this distance
     /** inside the rectangle (the shader): the colours fade (0..1), the contrast and the brightness are pushed up. NOT a colour layer. */
-    private static final float EXPOSE_DESAT = 0.55F;
-    private static final float EXPOSE_CONTRAST = 0.55F;
-    private static final float EXPOSE_BRIGHT = 0.45F;
+    private static final float EXPOSE_DESAT = 0.85F;
+    private static final float EXPOSE_CONTRAST = 3.2F;
+    private static final float EXPOSE_BRIGHT = 0.9F;
+    /** near him (full strength of the burst) the bending and the colour split grow to these values (the video of the original). */
+    private static final float NEAR_DISPLACE_GAIN = 7.0F;
+    private static final float NEAR_CA_SHIFT = 0.013F;
     /** the same, only light, for the case the small shader could not be loaded. */
     private static final float EXPOSE_LIGHT = 0.55F;
 
@@ -347,6 +350,9 @@ public final class SlenderDistortion {
         float depth = r[4];
         float t = (System.nanoTime() / 1_000_000L % 3_600_000L) / 1000F;        // _Time.y in seconds
         float base = STRENGTH / (1F + depth);
+        float nearK = Mth.clamp((float) ((EXPOSE_FAR - depth) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
+        nearK = nearK * nearK * (3F - 2F * nearK) * (0.55F + 0.45F * strength);
+        float gain = Mth.lerp(nearK, DISPLACE_GAIN, NEAR_DISPLACE_GAIN);
         float[][] px = new float[HI + 1][HJ + 1], py = new float[HI + 1][HJ + 1];
         float[][] pu = new float[HI + 1][HJ + 1], pv = new float[HI + 1][HJ + 1], pa = new float[HI + 1][HJ + 1];
         for (int j = 0; j <= HJ; j++) {
@@ -360,12 +366,12 @@ public final class SlenderDistortion {
                 float oy = noise(NOISE_G, tu + t / 20F, tv + 2F * t) + noise(NOISE_G, tu - t, tv - t / 20F) - 1F;
                 px[i][j] = x0 + (x1 - x0) * ti;
                 py[i][j] = y0 + (y1 - y0) * tj;
-                pu[i][j] = r[0] + (r[2] - r[0]) * ti + amount * DISPLACE_GAIN * ox;
-                pv[i][j] = r[3] - (r[3] - r[1]) * tj + amount * DISPLACE_GAIN * 0.5F * oy;
+                pu[i][j] = r[0] + (r[2] - r[0]) * ti + amount * gain * ox;
+                pv[i][j] = r[3] - (r[3] - r[1]) * tj + amount * gain * 0.5F * oy;
                 pa[i][j] = Math.min(1F, amount / TRANSPARENCY * CA_ALPHA_BOOST * w);
             }
         }
-        float ca = CA_SHIFT * (0.7F + 0.3F * strength);
+        float ca = Mth.lerp(nearK, CA_SHIFT, NEAR_CA_SHIFT) * (0.7F + 0.3F * strength);
         if (fx != null) {
             // one pass: bending + chromatic aberration + (near him) faded colours, more contrast and brightness
             float k = Mth.clamp((float) ((EXPOSE_FAR - depth) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
