@@ -102,6 +102,14 @@ public final class SlenderDistortion {
 
     /** the small shader of the distortion (assets/slenderman/shaders/core/slender_distort.*), null if it could not be loaded. */
     private static ShaderInstance fx;
+    /** the shader of the MASK (assets/slenderman/shaders/core/slender_mask.*): a plane in the world in front of him; null = the screen version is used. */
+    private static ShaderInstance mask;
+
+    // ---- the mask in the world
+    /** how far in front of him (towards the player) the plane stands (blocks); it never gets closer than 40% of the way to the player. */
+    private static final double MASK_OFFSET = 0.9D;
+    /** how many waves fit into the height of the plane (the old screen version had dozens: that was too many). */
+    private static final float MASK_WAVES = 4.0F;
 
     @Mod.EventBusSubscriber(modid = SlendermanMod.ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static final class Reg {
@@ -112,6 +120,12 @@ public final class SlenderDistortion {
                         DefaultVertexFormat.POSITION_COLOR_TEX), inst -> fx = inst);
             } catch (Throwable t) {
                 fx = null;      // without it the older way (three colour passes) is used
+            }
+            try {
+                e.registerShader(new ShaderInstance(e.getResourceManager(), new ResourceLocation(SlendermanMod.ID, "slender_mask"),
+                        DefaultVertexFormat.POSITION_TEX), inst -> mask = inst);
+            } catch (Throwable t) {
+                mask = null;    // without it the screen version is used
             }
         }
     }
@@ -165,6 +179,22 @@ public final class SlenderDistortion {
         view = e.getPoseStack().last().pose().copy();
         proj = e.getProjectionMatrix().copy();
         camPos = e.getCamera().getPosition();
+        if (mask != null && targetShown && target != null && !target.isRemoved()) {
+            try {
+                drawMask(e);
+            } catch (Throwable ignored) {
+                // never break the game because of a graphics detail
+            } finally {
+                Minecraft.getInstance().getMainRenderTarget().bindWrite(false);
+                RenderSystem.depthMask(true);
+                RenderSystem.enableCull();
+                RenderSystem.enableDepthTest();
+                RenderSystem.colorMask(true, true, true, true);
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.disableBlend();
+                RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- the effect (first thing the interface draws)
@@ -172,18 +202,10 @@ public final class SlenderDistortion {
     public static void onOverlay(RenderGuiOverlayEvent.Pre e) {
         if (!e.getOverlay().id().equals(VanillaGuiOverlay.VIGNETTE.id())) return;
         Minecraft mc = Minecraft.getInstance();
+        if (mask != null) return;      // the mask in the world does the job (drawMask); this screen version is only the fallback
         if (!targetShown || target == null || target.isRemoved() || view == null || proj == null) return;
 
-        // the dice: on / off about 60 times a second, a new "noise" every time it is on
-        long now = System.currentTimeMillis();
-        if (now >= nextRoll) {
-            nextRoll = now + ROLL_MS;
-            on = RNG.nextFloat() < ON_CHANCE;
-            phase = RNG.nextFloat() * 6.2831853F;
-            strength = 0.55F + 0.45F * RNG.nextFloat();
-            tint = RNG.nextFloat();
-            mode = RNG.nextInt(3);          // 0 burnt, 1 washed out, 2 both
-        }
+        rollDice();
         if (!on) return;
 
         float pt = e.getPartialTick();
@@ -201,6 +223,92 @@ public final class SlenderDistortion {
             RenderSystem.defaultBlendFunc();
             RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
         }
+    }
+
+    /** the dice: on / off about 60 times a second, a new "noise" every time it is on. */
+    private static void rollDice() {
+        long now = System.currentTimeMillis();
+        if (now >= nextRoll) {
+            nextRoll = now + ROLL_MS;
+            on = RNG.nextFloat() < ON_CHANCE;
+            phase = RNG.nextFloat() * 6.2831853F;
+            strength = 0.55F + 0.45F * RNG.nextFloat();
+            tint = RNG.nextFloat();
+            mode = RNG.nextInt(3);          // 0 burnt, 1 washed out, 2 both
+        }
+    }
+
+    /**
+     * THE MASK: a real plane in the world, standing in front of him (towards the player), as wide as the old rectangle and as tall
+     * as he is. It shows the copy of the picture bent by waves, with the colour split and (near him) burnt-out contrast. The depth
+     * test of the game applies: a wall, a tree or a hill in front of it hides it like any other object.
+     */
+    private static void drawMask(RenderLevelStageEvent e) {
+        rollDice();
+        if (!on) return;
+        Minecraft mc = Minecraft.getInstance();
+        SlendermanEntity s = target;
+        float pt = e.getPartialTick();
+        Vec3 ip = s.getPosition(pt);
+        Vec3 cam = e.getCamera().getPosition();
+        double dx = cam.x - ip.x, dz = cam.z - ip.z;
+        double flat = Math.sqrt(dx * dx + dz * dz);
+        if (flat < 0.6D) return;                              // he is on top of the camera
+        double nx = dx / flat, nz = dz / flat;                // from him to the camera
+        double rx = nz, rz = -nx;                             // to the right, seen from the camera
+        double off = Math.min(MASK_OFFSET, flat * 0.4D);
+        double hw = 0.3D + PAD_SIDE;
+        double y0 = ip.y - PAD_UPDOWN, y1 = ip.y + s.getBbHeight() + PAD_UPDOWN;
+        double cx = ip.x + nx * off, cz = ip.z + nz * off;
+        float depth = (float) ip.distanceTo(cam);
+
+        // the copy of the picture (the world as it is drawn so far, with him in it)
+        RenderTarget main = mc.getMainRenderTarget();
+        int tw = main.width, th = main.height;
+        if (copy == null) {
+            copy = new TextureTarget(tw, th, false, Minecraft.ON_OSX);
+            copy.setFilterMode(GL11.GL_LINEAR);
+        } else if (copy.width != tw || copy.height != th) {
+            copy.resize(tw, th, Minecraft.ON_OSX);
+        }
+        GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, main.frameBufferId);
+        GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, copy.frameBufferId);
+        GL30.glBlitFramebuffer(0, 0, tw, th, 0, 0, tw, th, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+        main.bindWrite(false);
+
+        float t = (System.nanoTime() / 1_000_000L % 3_600_000L) / 1000F;
+        float base = STRENGTH / (1F + depth);
+        float k = Mth.clamp((float) ((EXPOSE_FAR - depth) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
+        k = k * k * (3F - 2F * k) * (0.55F + 0.45F * strength);
+        float gain = Mth.lerp(k, DISPLACE_GAIN, NEAR_DISPLACE_GAIN);
+        float ca = Mth.lerp(k, CA_SHIFT, NEAR_CA_SHIFT) * (0.7F + 0.3F * strength);
+
+        RenderSystem.enableBlend();
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+        RenderSystem.enableDepthTest();
+        RenderSystem.depthFunc(515);
+        RenderSystem.depthMask(false);
+        RenderSystem.disableCull();
+        RenderSystem.colorMask(true, true, true, false);
+        RenderSystem.setShader(() -> mask);
+        RenderSystem.setShaderTexture(0, copy.getColorTextureId());
+        mask.safeGetUniform("MaskScreen").set((float) tw, (float) th);
+        mask.safeGetUniform("Effect").set(EXPOSE_DESAT * k, EXPOSE_CONTRAST * k, EXPOSE_BRIGHT * k, ca);
+        mask.safeGetUniform("Wave").set(base * gain, t, MASK_WAVES, base / TRANSPARENCY * CA_ALPHA_BOOST);
+        mask.safeGetUniform("Edge").set(FEATHER, 0F, 0F, 0F);
+
+        Matrix4f m = e.getPoseStack().last().pose();
+        double[][] c = {
+                {cx - rx * hw, y0, cz - rz * hw, 0, 0},
+                {cx + rx * hw, y0, cz + rz * hw, 1, 0},
+                {cx + rx * hw, y1, cz + rz * hw, 1, 1},
+                {cx - rx * hw, y1, cz - rz * hw, 0, 1}};
+        BufferBuilder b = Tesselator.getInstance().getBuilder();
+        b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
+        for (double[] v : c) {
+            b.vertex(m, (float) (v[0] - cam.x), (float) (v[1] - cam.y), (float) (v[2] - cam.z)).uv((float) v[3], (float) v[4]).endVertex();
+        }
+        BufferUploader.drawWithShader(b.end());
     }
 
     /** the rectangle on the screen (0..1 in x and y, y up) around his box, or null when he is behind / outside. */

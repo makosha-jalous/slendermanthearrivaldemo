@@ -65,6 +65,12 @@ public final class SlenderPages {
                 new PagesCollectedMessage(get(player), false));
     }
 
+    /** a new life: no pages, no sanity loss (the client is told one second later by PageSyncEvents). */
+    public static void clearForNewLife(Player player) {
+        player.getPersistentData().putInt(KEY, 0);
+        SlenderSanity.reset(player);
+    }
+
     public static void reset(ServerPlayer player) {
         player.getPersistentData().putInt(KEY, 0);
         SlenderSanity.reset(player);

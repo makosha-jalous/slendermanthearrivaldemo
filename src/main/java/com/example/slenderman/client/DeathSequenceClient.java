@@ -193,6 +193,7 @@ public final class DeathSequenceClient {
                 noiseStartMs = System.currentTimeMillis();
             }
             if (current == 3) {
+                if (old < 2) silenceAll();        // a sudden death (ran into him): no black screen came first, the sounds are cut here (screamers go on)
                 restoreGain();                    // the echo is over: the portrait has its own sounds
                 stopBreath();
                 stopLoops();

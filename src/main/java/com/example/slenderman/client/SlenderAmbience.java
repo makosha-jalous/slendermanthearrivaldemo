@@ -84,6 +84,8 @@ public final class SlenderAmbience {
     private static int graceLeft = 0;
     private static boolean dying = false;
     private static int footWait = -1;
+    /** counts every client tick: the age of a loop is measured with it (a loop whose start was muted never ticks by itself). */
+    private static int tickCounter = 0;
 
     private SlenderAmbience() {}
 
@@ -128,6 +130,7 @@ public final class SlenderAmbience {
         private final Fader fader;
         private final float gain;
         int age = 0;
+        final int bornTick = tickCounter;
 
         LoopSound(String event, Fader fader, float gain) {
             super(new SoundEvent(new ResourceLocation(NS, event)), SoundSource.AMBIENT, RandomSource.create());
@@ -165,6 +168,7 @@ public final class SlenderAmbience {
             return;
         }
         if (mc.isPaused()) return;
+        tickCounter++;
 
         // ---- is there a Slenderman, and is the death scene running?
         if (--slenderTimer <= 0) {
@@ -183,6 +187,8 @@ public final class SlenderAmbience {
         }
         if (graceLeft > 0) graceLeft--;
         boolean slender = graceLeft > 0 && !dying;
+        // the Retry menu: the bass (inside a structure) and the wind (outside) go on playing quietly behind it
+        boolean retryOpen = mc.screen instanceof SlenderRetryScreen;
 
         // ---- where is the player: outside / inside / cave (checked 4 times a second, must be stable for 0.5 s)
         if (--envTimer <= 0) {
@@ -205,7 +211,7 @@ public final class SlenderAmbience {
         float windGoal = zone == 0 ? 1.0F : (zone == 1 ? WIND_INDOOR : 0.0F);
         if (WIND_ONLY_WITH_SLENDER && !slender) windGoal = 0.0F;
         if (dying) windGoal = 0.0F;
-        float bassGoal = (slender && zone >= 1) ? 1.0F : 0.0F;
+        float bassGoal = ((slender || retryOpen) && zone >= 1) ? 1.0F : 0.0F;
         WIND.to(windGoal, WIND_FADE_DOWN, WIND_FADE_UP);
         BASS.to(bassGoal, BASS_FADE_OUT, BASS_FADE_IN);
         WIND.tick();
@@ -234,7 +240,7 @@ public final class SlenderAmbience {
             if (sound != null) sound.halt();
             return null;
         }
-        if (sound != null && !sound.isStopped() && (sound.age < 30 || sm.isActive(sound))) return sound;
+        if (sound != null && !sound.isStopped() && (tickCounter - sound.bornTick < 30 || sm.isActive(sound))) return sound;
         if (sound != null) sound.halt();
         LoopSound fresh = new LoopSound(event, fader, gain);
         sm.play(fresh);

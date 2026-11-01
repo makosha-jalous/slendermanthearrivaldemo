@@ -7,7 +7,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.gui.screens.DeathScreen;
 import net.minecraft.client.gui.screens.GenericDirtMessageScreen;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
@@ -26,7 +25,7 @@ import java.util.Random;
  * The word under the mouse gets its streaks (only one of them at a time). A click is a flash of grain, then the action.
  * No sounds at all, no vanilla buttons, no clicks.
  */
-public class SlenderRetryScreen extends Screen {
+public class SlenderRetryScreen extends DeathScreen {
     private static final ResourceLocation NORMAL = new ResourceLocation(SlendermanMod.ID, "textures/gui/retry_normal.png");
     private static final ResourceLocation HOVER_RETRY = new ResourceLocation(SlendermanMod.ID, "textures/gui/retry_hover_retry.png");
     private static final ResourceLocation HOVER_QUIT = new ResourceLocation(SlendermanMod.ID, "textures/gui/retry_hover_quit.png");
@@ -46,17 +45,43 @@ public class SlenderRetryScreen extends Screen {
     private int chosen = 0;
     private long clickMs = 0L;
 
+    private int age = 0;
+    private boolean respawning = false;
+    private long respawnMs = 0L;
+
+    // It IS a DeathScreen (a subclass of it): the game closes a death screen by itself the moment the respawn is done,
+    // so ONE click on RETRY is enough (the old version was not one, stayed open and wanted a second click).
     public SlenderRetryScreen() {
-        super(Component.empty());
+        super(null, false);
     }
 
     @Override
     protected void init() {
+        // no vanilla buttons at all
         DeathSequenceClient.retryBegin();
+        PageAudio.forgetAll();                                // a new life: no page music until a page is taken
+        silence();
+    }
+
+    /**
+     * Every sound is stopped (also a screamer that is still playing), EXCEPT the ambient category: the wind outside and the bass
+     * inside a structure (and nothing else) go on behind the menu. New sounds are muted by Events.onSound.
+     */
+    private void silence() {
         try {
-            this.minecraft.getSoundManager().stop();         // nothing is heard here
+            for (net.minecraft.sounds.SoundSource src : net.minecraft.sounds.SoundSource.values()) {
+                if (src == net.minecraft.sounds.SoundSource.MASTER || src == net.minecraft.sounds.SoundSource.AMBIENT) continue;
+                this.minecraft.getSoundManager().stop(null, src);
+            }
         } catch (Throwable ignored) {
         }
+    }
+
+    @Override
+    public void tick() {
+        // (no super.tick(): the vanilla delay of its buttons is not needed)
+        this.age++;
+        if (this.age <= 60 && this.age % 4 == 0) silence();   // the first 3 s: whatever starts late is stopped again
     }
 
     @Override
@@ -84,7 +109,7 @@ public class SlenderRetryScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (button == 0 && this.chosen == 0) {
+        if (button == 0 && this.chosen == 0 && !this.respawning) {
             int h = hitTest(mx, my);
             if (h != 0) {
                 this.chosen = h;
@@ -97,7 +122,7 @@ public class SlenderRetryScreen extends Screen {
     @Override
     public void render(PoseStack ps, int mx, int my, float pt) {
         long now = System.currentTimeMillis();
-        this.hover = this.chosen != 0 ? this.chosen : hitTest(mx, my);
+        this.hover = this.chosen != 0 ? this.chosen : (this.respawning ? 0 : hitTest(mx, my));
         DeathSequenceClient.retryStep();
 
         GuiComponent.fill(ps, 0, 0, this.width, this.height, 0xFF000000);
@@ -125,6 +150,10 @@ public class SlenderRetryScreen extends Screen {
         DeathSequenceClient.drawBentScene(ps, this.width, this.height, DeathSequenceClient.retryChroma());
         RenderSystem.disableBlend();
 
+        if (this.respawning && now - this.respawnMs > 4000L && this.minecraft.player != null && this.minecraft.player.isAlive()) {
+            this.respawning = false;
+            this.minecraft.setScreen(null);                        // safety net: the game did not close it
+        }
         if (this.chosen != 0 && now - this.clickMs >= FLASH_MS) {
             int c = this.chosen;
             this.chosen = 0;
@@ -136,8 +165,10 @@ public class SlenderRetryScreen extends Screen {
         Minecraft mc = this.minecraft;
         if (mc == null) return;
         if (what == 1) {
-            if (mc.player != null) mc.player.respawn();            // RETRY: the same as the vanilla "Respawn"
-            mc.setScreen(null);
+            // RETRY: the same as the vanilla "Respawn". The screen stays (black) until the game closes it by itself.
+            this.respawning = true;
+            this.respawnMs = System.currentTimeMillis();
+            if (mc.player != null) mc.player.respawn();
         } else {
             // QUIT: the same as the vanilla "Title Screen"
             if (mc.level != null) mc.level.disconnect();
@@ -151,7 +182,7 @@ public class SlenderRetryScreen extends Screen {
         /** the vanilla death screen is never shown: our menu opens in its place. */
         @SubscribeEvent
         public static void onOpening(ScreenEvent.Opening e) {
-            if (e.getNewScreen() instanceof DeathScreen) {
+            if (e.getNewScreen() instanceof DeathScreen && !(e.getNewScreen() instanceof SlenderRetryScreen)) {
                 e.setNewScreen(new SlenderRetryScreen());
             }
         }
@@ -159,7 +190,12 @@ public class SlenderRetryScreen extends Screen {
         /** the menu is silent: no sound starts while it is open. */
         @SubscribeEvent
         public static void onSound(PlaySoundEvent e) {
-            if (Minecraft.getInstance().screen instanceof SlenderRetryScreen) e.setSound(null);
+            if (!(Minecraft.getInstance().screen instanceof SlenderRetryScreen)) return;
+            var si = e.getSound();
+            if (si == null) return;
+            // only the wind and the bass of the mod may start behind the menu
+            boolean ours = si.getSource() == net.minecraft.sounds.SoundSource.AMBIENT && "slenderambient".equals(si.getLocation().getNamespace());
+            if (!ours) e.setSound(null);
         }
     }
 }

@@ -58,6 +58,14 @@ public class PageAudio {
         }
     }
 
+    /** the death menu: the page music is over, a new life starts with no pages (it also stops a loop that is waiting to be restarted). */
+    public static void forgetAll() {
+        PageAmbientLoop old = current;
+        current = null;
+        currentGroup = 0;
+        if (old != null) old.halt();
+    }
+
     private static void startLoop(int group) {
         current = new PageAmbientLoop(SlendermanMod.PAGE_AMBIENTS.get(group - 1).get(), 0);
         sinceStart = 0;
