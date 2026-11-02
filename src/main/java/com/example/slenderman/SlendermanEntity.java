@@ -189,9 +189,9 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double CONTACT_DIST = 1.6D;
     /** no teleport ever puts him closer than this to the player (blocks, horizontal): the hitboxes must never touch by a teleport. */
     private static final double TELEPORT_MIN_DIST = 1.1D;
-    /** the distance band he keeps while stalking (blocks), index = pages collected: 1-2 pages 30-35, 3-4: 13-17, 5-6: 6-7, 7: 3-4. */
-    private static final double[] BAND_MIN = {30.0, 30.0, 30.0, 13.0, 13.0,  6.0,  6.0,  3.0,  3.0};
-    private static final double[] BAND_MAX = {35.0, 35.0, 35.0, 17.0, 17.0, 7.0, 7.0,  4.0,  4.0};  
+    /** the distance band he keeps while stalking (blocks), index = pages collected: pages 1-2: 30-35, 3: 13-17, 4: 10-13, 5: 6-7, 6: 4-6, 7: 2-4. */
+    private static final double[] BAND_MIN = {30.0, 30.0, 30.0, 13.0, 10.0,  6.0,  4.0,  2.0,  3.0};
+    private static final double[] BAND_MAX = {35.0, 35.0, 35.0, 17.0, 13.0, 7.0, 6.0,  4.0,  4.0};  
     /** "far behind" = farther than the band by this much. After 4 s of that (or of being stuck) he steps closer silently. */
     private static final double LAG_MARGIN = 14.0D;
     private static final int REPOSITION_TICKS = 80;
@@ -199,9 +199,9 @@ public class SlendermanEntity extends PathfinderMob {
     /** false = he never shows a walking animation: while nobody looks he appears a few blocks closer (silently) and stands still. */
     private static final boolean WALK = false;
     /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
-    public static final int DEATH_PORTRAIT_TICKS = 40;
+    public static final int DEATH_PORTRAIT_TICKS = 30;
     /** the portrait lasts a random 2 .. 2.5 s (40 .. 50 ticks). */
-    public static final int DEATH_PORTRAIT_MAX_TICKS = 50;
+    public static final int DEATH_PORTRAIT_MAX_TICKS = 40;
     public static final int DEATH_END_TICKS = 24;
     /** watcher mode: how far he stands (blocks), and when he vanishes because the player comes closer. */
     private static final double WATCH_MIN = 80.0D;
@@ -754,7 +754,7 @@ public class SlendermanEntity extends PathfinderMob {
         // pages 6 and 7, also while the player WALKS: he sticks right behind the back (closer than 3 blocks), so roaming.ogg
         // plays and the sanity falls even when the player does not look at him (like in the original)
         boolean stick = st >= STICK_FROM_STAGE;
-        double wantMax = close ? CONTACT_DIST : (stick ? STICK_DIST : BAND_MAX[st]);
+        double wantMax = close ? CONTACT_DIST : BAND_MAX[st];
         double tol = close ? 0.1D : 0.3D;   // right behind the player he stops at about 2.2 blocks, never closer
         double baseSpeed = WALK_SPEED * WALK_MOD[st];
 
@@ -842,7 +842,8 @@ public class SlendermanEntity extends PathfinderMob {
         double base = Math.atan2(look.z, look.x) + Math.PI;
         for (int attempt = 0; attempt < 10; attempt++) {
             double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * (attempt < 5 ? 30.0D : 90.0D));
-            double d = STICK_DIST - 0.3D + this.random.nextDouble() * 0.5D;
+            int sst = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+            double d = BAND_MIN[sst] + this.random.nextDouble() * (BAND_MAX[sst] - BAND_MIN[sst]);
             double x = player.getX() + Math.cos(angle) * d;
             double z = player.getZ() + Math.sin(angle) * d;
             if (this.tooCloseToPlayer(player, x, z)) continue;

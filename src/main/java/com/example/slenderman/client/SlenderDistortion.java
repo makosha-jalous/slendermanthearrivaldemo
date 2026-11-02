@@ -83,7 +83,7 @@ public final class SlenderDistortion {
 
     // ---- chromatic aberration inside the rectangle (always, together with the heat waves)
     /** how far the red and the blue picture are pushed apart (share of the screen width). */
-    private static final float CA_SHIFT = 0.0055F;
+    private static final float CA_SHIFT = 0.0F;
     /** the aberration is a bit stronger than the plain heat: it is also seen far away. */
     private static final float CA_ALPHA_BOOST = 1.8F;
 
@@ -91,12 +91,12 @@ public final class SlenderDistortion {
     private static final double EXPOSE_FAR = 9.0D;      // starts at this distance (blocks) ...
     private static final double EXPOSE_NEAR = 4.0D;     // ... and is at its full strength at this distance
     /** inside the rectangle (the shader): the colours fade (0..1), the contrast and the brightness are pushed up. NOT a colour layer. */
-    private static final float EXPOSE_DESAT = 0.85F;
-    private static final float EXPOSE_CONTRAST = 3.2F;
-    private static final float EXPOSE_BRIGHT = 0.9F;
+    private static final float EXPOSE_DESAT = 0.0F;
+    private static final float EXPOSE_CONTRAST = 1.2F;
+    private static final float EXPOSE_BRIGHT = 0.5F;
     /** near him (full strength of the burst) the bending and the colour split grow to these values (the video of the original). */
     private static final float NEAR_DISPLACE_GAIN = 7.0F;
-    private static final float NEAR_CA_SHIFT = 0.013F;
+    private static final float NEAR_CA_SHIFT = 0.0F;
     /** the same, only light, for the case the small shader could not be loaded. */
     private static final float EXPOSE_LIGHT = 0.55F;
 

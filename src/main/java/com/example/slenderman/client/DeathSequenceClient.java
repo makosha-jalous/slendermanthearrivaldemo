@@ -88,7 +88,7 @@ public final class DeathSequenceClient {
     /** how dark the model is (colour multiplier): the clothes can barely be seen. */
     private static final float MODEL_DARK = 1.00F;     // the skin of the death scene is painted dark already: no extra darkening
     /** the glow behind him is 70 % darker than before (brightness x 0.30). */
-    private static final float GLOW_DIM = 0.30F;
+    private static final float GLOW_DIM = 0.50F;
     /** strength of the bending of the picture (share of the screen height). */
     private static final float WARP_STRENGTH = 0.055F;
     private static final Random FX_RND = new Random();
@@ -104,7 +104,7 @@ public final class DeathSequenceClient {
      */
     private static final float DEATH_LOSS = 30F;
     /** strength of the grain over the portrait: more transparent than before (0.40), because he is not always visible. */
-    private static final float DEATH_NOISE = 0.24F;
+    private static final float DEATH_NOISE = 0.30F;
     private static boolean deathOn = false;
     private static float fishX = 0F, fishY = 0F;
     private static float glowFlick = 1.0F;
@@ -639,6 +639,12 @@ public final class DeathSequenceClient {
             int scale = Math.round(h * PORTRAIT_SCALE);
             int x = Math.round(cx);
             int y = Math.round(h * PORTRAIT_TOP + 4.0F * scale);       // the feet are far below the screen: only the head and the shoulders show
+            // colour fringes like the video: a purple copy a little to the left, a green one to the right, the dark model on top
+            int d = Math.max(2, Math.round(h * 0.012F * (0.7F + 0.6F * FX_RND.nextFloat())));
+            RenderSystem.setShaderColor(0.62F, 0.10F, 0.85F, 1.0F);
+            InventoryScreen.renderEntityInInventory(x - d, y, scale, 0.0F, 0.0F, killer);
+            RenderSystem.setShaderColor(0.10F, 0.45F, 0.12F, 1.0F);
+            InventoryScreen.renderEntityInInventory(x + d, y, scale, 0.0F, 0.0F, killer);
             RenderSystem.setShaderColor(MODEL_DARK, MODEL_DARK, MODEL_DARK * 0.95F, 1.0F);
             InventoryScreen.renderEntityInInventory(x, y, scale, 0.0F, 0.0F, killer);    // 0 / 0: exactly from the front
         } catch (Throwable ignored) {

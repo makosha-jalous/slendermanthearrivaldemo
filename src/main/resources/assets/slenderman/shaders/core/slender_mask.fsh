@@ -45,7 +45,7 @@ void main() {
     c.b = texture(Sampler0, sc - vec2(Effect.w, 0.0)).b;
     float l = dot(c, vec3(0.299, 0.587, 0.114));
     c = mix(c, vec3(l), Effect.x);
-    c = (c - 0.12) * (1.0 + Effect.y) + 0.12;
+    c = (c - 0.25) * (1.0 + Effect.y) + 0.25;
     c *= 1.0 + Effect.z;
     float a = clamp(Wave.w * w * w * w, 0.0, 1.0);
     fragColor = vec4(clamp(c, 0.0, 1.0), a);
