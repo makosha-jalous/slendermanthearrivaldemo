@@ -938,12 +938,11 @@ public class SlendermanEntity extends PathfinderMob {
         int idx = this.random.nextInt(SlendermanMod.SCREAMS.size());
         this.sendCue(1 + idx);
 
-        if (this.animCooldown > 0) return;
-        float r = this.random.nextFloat();
-        int anim = ACTION_NONE;
-        if (r < REACH_BY[this.stage]) anim = ACTION_LUNGE;
-        else if (r < REACH_BY[this.stage] + BOW_BY[this.stage]) anim = ACTION_PEEK;
-        if (anim == ACTION_NONE) return;
+        // EVERY screamer comes with an animation: the old chances (REACH_BY / BOW_BY) now only decide WHICH one (the reach or the bow)
+        if (this.action != ACTION_NONE) return;
+        float reachW = REACH_BY[this.stage], bowW = BOW_BY[this.stage];
+        if (reachW + bowW <= 0F) { reachW = REACH_CHANCE; bowW = BOW_CHANCE; }     // pages 1-2 have no chances: use the general ones
+        int anim = this.random.nextFloat() * (reachW + bowW) < reachW ? ACTION_LUNGE : ACTION_PEEK;
         this.animCooldown = (int) ((ANIM_COOLDOWN_MIN + this.random.nextInt(ANIM_COOLDOWN_RANDOM + 1)) * SCARE_SCALE[this.stage]);
         if (anim == ACTION_LUNGE) {
             this.startAction(ACTION_LUNGE, LUNGE_TICKS);
