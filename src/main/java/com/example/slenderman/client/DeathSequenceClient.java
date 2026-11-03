@@ -134,7 +134,8 @@ public final class DeathSequenceClient {
 
     private static float[] angles(Minecraft mc, float pt) {
         float k = 1.0F;
-        if (phase == 1) k = Mth.clamp((ticks + pt) / (float) Math.max(1, killer.getTurnTicks()), 0.0F, 1.0F);
+        // the speed of the turn is always the same (slow, measured): the scene ends when the sanity is gone, not when the turn is done
+        if (phase == 1) k = Mth.clamp((ticks + pt) / (float) SlendermanEntity.DEATH_TURN_TICKS, 0.0F, 1.0F);
         k = k * k * (3.0F - 2.0F * k);
         float[] t = targetAngles(mc, pt);
         return new float[]{startYaw + Mth.wrapDegrees(t[0] - startYaw) * k, startPitch + (t[1] - startPitch) * k};
@@ -573,6 +574,19 @@ public final class DeathSequenceClient {
         killer = null;
         stopLoops();
         restoreGain();
+    }
+
+    /** the field of view before the scene: the slowness of the scene would narrow it, so it is kept as it was. */
+    private static double normalFov = -1.0D;
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onFov(ViewportEvent.ComputeFov e) {
+        if (!e.usedConfiguredFov()) return;
+        if (phase == 0) {
+            normalFov = e.getFOV();
+        } else if (normalFov > 0.0D) {
+            e.setFOV(normalFov);
+        }
     }
 
     @SubscribeEvent

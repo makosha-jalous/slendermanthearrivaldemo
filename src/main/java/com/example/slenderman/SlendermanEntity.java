@@ -327,6 +327,8 @@ public class SlendermanEntity extends PathfinderMob {
     private int deathPhase = 0;
     /** the player ran into him: after the turn the black screen is skipped. */
     private boolean deathSkipBlack = false;
+    /** /slender animations walk: he walks to the player for this many ticks, nothing else. */
+    private int demoWalkTicks = 0;
     /** how long the portrait lasts this time (ticks). */
     private int portraitTicks = DEATH_PORTRAIT_TICKS;
     private int hopStepTicks = 0;
@@ -536,6 +538,10 @@ public class SlendermanEntity extends PathfinderMob {
         Player player = this.findTarget();
         if (player == null) {
             this.standStill();
+            return;
+        }
+        if (this.demoWalkTicks > 0) {      // /slender animations walk
+            this.demoWalkStep(player);
             return;
         }
         boolean seen = this.isSeenBy(player);
@@ -822,7 +828,13 @@ public class SlendermanEntity extends PathfinderMob {
             if (len > 1.0E-3D) goal = goal.subtract(look.x / len * CONTACT_DIST, 0.0D, look.z / len * CONTACT_DIST);
         }
         if (WALK || st >= WALK_FROM_STAGE) {
-            this.walkToward(goal.x, goal.y, goal.z, baseSpeed * catchUp);
+            // the speed follows the distance he has to keep: at least as fast as the player (a bit more) plus the gap to the band,
+            // so on every page he stays inside his band (7: 2-4 blocks) even behind a running player
+            double gap = Math.max(0.0D, dist - wantMax);
+            double wantedPerTick = this.playerSpeed * 1.12D + gap * 0.14D;
+            double neededMul = wantedPerTick / (0.12D * 2.158D);          // MOVEMENT_SPEED 0.12, about 2.158 blocks per tick per 1.0 of attribute
+            double mul = Mth.clamp(Math.max(baseSpeed * catchUp, neededMul), baseSpeed, 4.0D);
+            this.walkToward(goal.x, goal.y, goal.z, mul);
             this.watchProgress(player, dist, wantMax);
             return true;
         }
@@ -889,7 +901,7 @@ public class SlendermanEntity extends PathfinderMob {
             else this.stuckSeconds = 0;
             this.stuckPos = now;
         }
-        boolean lagging = dist > wantMax + LAG_MARGIN;
+        boolean lagging = dist > wantMax + (this.stage >= WALK_FROM_STAGE ? 8.0D : LAG_MARGIN);
         if (!lagging && this.stuckSeconds < 3) {
             this.lagTicks = 0;
             return;
@@ -907,6 +919,55 @@ public class SlendermanEntity extends PathfinderMob {
         this.getNavigation().stop();
         this.pathRetry = 0;
         this.setDeltaMovement(0.0D, this.getDeltaMovement().y, 0.0D);
+    }
+
+    /**
+     * /slender animations: kind 1 = the reach, 2 = the bow, 3 = the walk, 0 = stop. He is put in front of the player (7 blocks, 12 for the walk),
+     * facing him, and shows the animation. Returns false if no place was found.
+     */
+    public boolean playDemo(Player player, int kind) {
+        this.demoWalkTicks = 0;
+        if (this.action != ACTION_NONE) this.endAction();
+        this.getNavigation().stop();
+        if (kind == 0) {
+            this.standStill();
+            return true;
+        }
+        this.vanished = false;
+        this.setInvisible(false);
+        Vec3 look = player.getLookAngle();
+        double len = Math.sqrt(look.x * look.x + look.z * look.z);
+        if (len < 1.0E-3D) return false;
+        double dist = kind == 3 ? 12.0D : 7.0D;
+        double x = player.getX() + look.x / len * dist;
+        double z = player.getZ() + look.z / len * dist;
+        double y = this.findGround(x, z, player.getY(), 4.0D, 3);
+        if (Double.isNaN(y)) return false;
+        float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
+        this.suppressTeleportCue = true;
+        this.relocate(x, y, z, yaw);
+        this.suppressTeleportCue = false;
+        this.animCooldown = 0;
+        if (kind == 1) {
+            this.startAction(ACTION_LUNGE, LUNGE_TICKS);
+        } else if (kind == 2) {
+            this.startAction(ACTION_PEEK, PEEK_TICKS);
+            this.entityData.set(DATA_SIDE, this.random.nextBoolean() ? 1 : -1);
+        } else {
+            this.demoWalkTicks = 20 * 8;
+        }
+        return true;
+    }
+
+    private void demoWalkStep(Player player) {
+        this.demoWalkTicks--;
+        if (this.distanceTo(player) <= 3.0D || this.demoWalkTicks <= 0) {
+            this.demoWalkTicks = 0;
+            this.standStill();
+            return;
+        }
+        this.setYHeadRot(this.yBodyRot);
+        this.walkToward(player.getX(), player.getY(), player.getZ(), 1.2D);
     }
 
     private void startAction(int newAction, int duration) {

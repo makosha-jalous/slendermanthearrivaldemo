@@ -54,8 +54,8 @@ public final class SlenderDistortion {
     /** how often the dice are thrown (ms): 16 = about 60 times a second whatever the FPS is. */
     private static final long ROLL_MS = 16L;
     /** how far the rectangle reaches beyond his body (blocks, to the sides / up and down). */
-    private static final double PAD_SIDE = 1.9D;        // much wider than his body, like the plane of the original (was 0.7)
-    private static final double PAD_UPDOWN = 0.45D;
+    private static final double PAD_SIDE = 2.6D;        // much wider than his body, like the plane of the original (was 0.7)
+    private static final double PAD_UPDOWN = 0.0D;
     /** the waving sideways (share of the rectangle width). */
     private static final float WAVE = 0.07F;
     /** the shift of the colour channels (share of the rectangle width). */
