@@ -198,6 +198,8 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double REPOSITION_STEP = 12.0D;
     /** false = he never shows a walking animation: while nobody looks he appears a few blocks closer (silently) and stands still. */
     private static final boolean WALK = false;
+    /** from this page on he really WALKS behind the player (no hops): with the walking animation, only while nobody looks at him. */
+    private static final int WALK_FROM_STAGE = 5;
     /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
     public static final int DEATH_PORTRAIT_TICKS = 30;
     /** the portrait lasts a random 2 .. 2.5 s (40 .. 50 ticks). */
@@ -323,6 +325,8 @@ public class SlendermanEntity extends PathfinderMob {
     private int stuckSeconds = 0;
     private Vec3 stuckPos = null;
     private int deathPhase = 0;
+    /** the player ran into him: after the turn the black screen is skipped. */
+    private boolean deathSkipBlack = false;
     /** how long the portrait lasts this time (ticks). */
     private int portraitTicks = DEATH_PORTRAIT_TICKS;
     private int hopStepTicks = 0;
@@ -565,7 +569,8 @@ public class SlendermanEntity extends PathfinderMob {
             // running into him unexpectedly (sprinting): the death is sudden, there is NO black screen and no turn: straight to the portrait
             if (this.touchesPlayer(player)) {
                 boolean sudden = player.isSprinting() || this.playerSpeed > RUN_SPEED;
-                if (this.beginDeath(player, seen && !sudden, sudden)) return;
+                // sudden (ran into him): the slow turn to his face stays, but when the sanity is gone the portrait comes at once (no black screen)
+                if (this.beginDeath(player, seen || sudden, sudden)) return;
             }
             if (this.sanityRush) {
                 this.sanityKill(player, dist);
@@ -816,7 +821,7 @@ public class SlendermanEntity extends PathfinderMob {
             double len = Math.sqrt(look.x * look.x + look.z * look.z);
             if (len > 1.0E-3D) goal = goal.subtract(look.x / len * CONTACT_DIST, 0.0D, look.z / len * CONTACT_DIST);
         }
-        if (WALK) {
+        if (WALK || st >= WALK_FROM_STAGE) {
             this.walkToward(goal.x, goal.y, goal.z, baseSpeed * catchUp);
             this.watchProgress(player, dist, wantMax);
             return true;
@@ -847,7 +852,7 @@ public class SlendermanEntity extends PathfinderMob {
             double x = player.getX() + Math.cos(angle) * d;
             double z = player.getZ() + Math.sin(angle) * d;
             if (this.tooCloseToPlayer(player, x, z)) continue;
-            double y = this.findGround(x, z, player.getY(), attempt < 6 ? 4.0D : 3.0D);
+            double y = this.findGround(x, z, player.getY(), attempt < 6 ? 4.0D : 3.0D, this.planeDy(player));
             if (Double.isNaN(y)) continue;
             float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
             this.suppressTeleportCue = true;
@@ -1174,6 +1179,11 @@ public class SlendermanEntity extends PathfinderMob {
         return false;
     }
 
+    /** how far above / below the player a teleport spot may be: inside a structure the SAME floor (1 block), outside 3 blocks (no roofs). */
+    private int planeDy(Player player) {
+        return this.playerIndoors(player) ? 1 : 3;
+    }
+
     /** a teleport target that would be closer than TELEPORT_MIN_DIST to the player (horizontal distance). */
     private boolean tooCloseToPlayer(Player player, double x, double z) {
         double dx = x - player.getX();
@@ -1204,7 +1214,7 @@ public class SlendermanEntity extends PathfinderMob {
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
             if (this.tooCloseToPlayer(player, x, z)) continue;
-            double y = this.findGround(x, z, player.getY(), (attempt % 2 == 0) ? 4.0D : 3.0D);
+            double y = this.findGround(x, z, player.getY(), (attempt % 2 == 0) ? 4.0D : 3.0D, 1);   // the same floor as the player
             if (Double.isNaN(y)) continue;
             if (!this.hasRoof(x, y + 1.0D, z)) continue;               // it has to be inside, not on the lawn
             if (attempt < 70 && this.visibleFrom(eye, x, y, z)) continue;   // hidden spots first
@@ -1223,7 +1233,7 @@ public class SlendermanEntity extends PathfinderMob {
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
             if (this.tooCloseToPlayer(player, x, z)) continue;
-            double y = this.findGround(x, z, player.getY(), attempt < 12 ? 4.0D : 3.0D);
+            double y = this.findGround(x, z, player.getY(), attempt < 12 ? 4.0D : 3.0D, this.planeDy(player));
             if (!Double.isNaN(y)) return new Vec3(x, y, z);
         }
         return null;
@@ -1250,7 +1260,7 @@ public class SlendermanEntity extends PathfinderMob {
             double angle = base + Math.toRadians((this.random.nextDouble() - 0.5D) * 160.0D);
             double x = player.getX() + Math.cos(angle) * distance;
             double z = player.getZ() + Math.sin(angle) * distance;
-            double y = this.findGround(x, z, player.getY(), attempt < 20 ? 4.0D : 3.0D);
+            double y = this.findGround(x, z, player.getY(), attempt < 20 ? 4.0D : 3.0D, this.planeDy(player));
             if (Double.isNaN(y)) continue;
             if (this.visibleFrom(eye, x, y, z)) continue;
             return new Vec3(x, y, z);
@@ -1430,11 +1440,15 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.deathPhase != 0 || !player.isAlive()) return false;
         if (SlenderModes.isGod(player)) return false;     // God Mode: no death scene at all
         this.deathVictim = player.getUUID();
-        this.deathPhase = sudden ? 3 : (turn ? 1 : 2);
-        if (sudden) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
+        this.deathSkipBlack = sudden;
+        this.deathPhase = turn ? 1 : (sudden ? 3 : 2);
+        if (this.deathPhase == 3) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
         this.deathTicks = 0;
         this.deathSanityStart = SlenderSanity.get(player);
-        this.entityData.set(DATA_TURN, turnTicksFor(this.deathSanityStart));
+        // the turn lasts exactly as long as the sanity needs to fall from where it is to 100 at his distance (close: about a second)
+        float rate = SlenderSanity.lossPerTick(this.distanceTo(player));
+        int turnTicks = rate > 0.0F ? (int) Math.ceil((SlenderSanity.MAX - this.deathSanityStart) / rate) : DEATH_TURN_TICKS;
+        this.entityData.set(DATA_TURN, Mth.clamp(turnTicks, 12, DEATH_TURN_TICKS));
         this.entityData.set(DATA_DEATH, this.deathPhase);
         this.vanished = false;
         this.setInvisible(false);
@@ -1574,6 +1588,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.deathPhase < 4) {
             // 1 turn -> 2 black screen -> 3 portrait -> 4 last black screen -> the death
             this.deathPhase++;
+            if (this.deathPhase == 2 && this.deathSkipBlack) this.deathPhase = 3;      // ran into him: no black screen, the portrait comes at once
             this.deathTicks = 0;
             if (this.deathPhase == 3) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
             this.entityData.set(DATA_DEATH, this.deathPhase);
@@ -1626,7 +1641,7 @@ public class SlendermanEntity extends PathfinderMob {
             double x = this.getX() + sx * step;
             double z = this.getZ() + sz * step;
             if (this.tooCloseToPlayer(player, x, z)) continue;
-            double y = this.findGround(x, z, this.getY());
+            double y = this.findGround(x, z, this.getY(), 4.0D, 2);
             if (Double.isNaN(y)) continue;
             float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
             this.relocate(x, y, z, yaw);
@@ -1643,6 +1658,8 @@ public class SlendermanEntity extends PathfinderMob {
         boolean tight = kind == TeleportKind.HUNT || kind == TeleportKind.AHEAD || kind == TeleportKind.BEHIND || kind == TeleportKind.CLOSE
                 || kind == TeleportKind.MID || kind == TeleportKind.PUNISH || kind == TeleportKind.CHASE;
         int attempts = tight ? 48 : 32;
+        boolean indoors = this.playerIndoors(player);
+        int planeDy = indoors ? 1 : 3;
         for (int attempt = 0; attempt < attempts; attempt++) {
             double distance, offsetDeg;
             switch (kind) {
@@ -1702,8 +1719,10 @@ public class SlendermanEntity extends PathfinderMob {
             double z = player.getZ() + Math.sin(angle) * distance;
             if (this.tooCloseToPlayer(player, x, z)) continue;
             double need = tight ? (attempt < 16 ? 4.0D : (attempt < 32 ? 3.0D : 2.0D)) : 4.0D;
-            double y = this.findGround(x, z, player.getY(), need);
+            double y = this.findGround(x, z, player.getY(), need, planeDy);
             if (Double.isNaN(y)) continue;
+            // the player is inside a structure: he appears INSIDE it, on the same floor (a roof above the spot), not on the roof
+            if (indoors && attempt < 36 && !this.hasRoof(x, y + 1.0D, z)) continue;
             float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
             this.relocate(x, y, z, yaw);
             this.afterTeleport(player);
@@ -1801,10 +1820,15 @@ public class SlendermanEntity extends PathfinderMob {
     }
 
     private double findGround(double x, double z, double baseY, double height) {
+        return this.findGround(x, z, baseY, height, 8);
+    }
+
+    /** the same, but only up to maxDy blocks above / below baseY (nearest first): the same floor as the player, not a roof or a floor above. */
+    private double findGround(double x, double z, double baseY, double height, int maxDy) {
         int ix = Mth.floor(x);
         int iz = Mth.floor(z);
         int iy = Mth.floor(baseY);
-        for (int i = 0; i <= 16; i++) {
+        for (int i = 0; i <= 2 * maxDy; i++) {
             int dy = (i % 2 == 0) ? i / 2 : -((i + 1) / 2);
             BlockPos pos = new BlockPos(ix, iy + dy, iz);
             if (!this.level.hasChunkAt(pos)) continue;
