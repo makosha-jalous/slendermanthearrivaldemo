@@ -38,9 +38,14 @@ public final class SlenderSanity {
         return Mth.lerp(Mth.clamp(loss / MAX, 0.0F, 1.0F), RECOVER_SECONDS_SMALL, RECOVER_SECONDS_FULL) / RECOVER_SPEEDUP;
     }
 
-    /** loss points per tick for a recovery that starts at this loss (constant until it reaches 0). */
+    // ---- recovery of the original game: +0.1 in EVERY physics step while he is not in view ----
+    // 0.1 * 50 steps = 5 points of loss per second, whatever the loss is (100 comes back in 20 s). One Minecraft tick = 2.5 steps.
+    public static final double ORIGINAL_RECOVER_PER_STEP = 0.1D;
+    public static final double RECOVER_PER_SECOND = 5.0D;
+
+    /** loss points per tick that come back while he is not in view: 0.25 (= 5 per second), constant, as in the original. */
     public static float recoverPerTick(float loss) {
-        return (float) (loss / (recoverSeconds(loss) * 20.0D));
+        return (float) (RECOVER_PER_SECOND / 20.0D);
     }
 
     private SlenderSanity() {}
@@ -90,6 +95,20 @@ public final class SlenderSanity {
         if (dist <= 1.0D) return CLOSE_SECONDS_1;
         if (dist <= 2.0D) return CLOSE_SECONDS_1 + (CLOSE_SECONDS_2 - CLOSE_SECONDS_1) * (dist - 1.0D);
         return CLOSE_SECONDS_2 + (atFull - CLOSE_SECONDS_2) * (dist - 2.0D);
+    }
+
+    // ---- the flashlight (original: flashlight.isOnAndFocused()) ----
+    // not focused (or no light): 2^(-distance * 2 / 10)  -> the curve above (halves every 5 blocks)
+    // focused:                   2^(-distance / 10)      -> halves every 10 blocks: MUCH faster loss far away
+    /** the distance (blocks) in which the loss halves while the flashlight is focused. */
+    public static final double FOCUSED_HALVING_DIST = 10.0D;
+
+    /** points of loss per tick: with a focused flashlight the original formula 2^(-d/10), otherwise the usual curve. */
+    public static float lossPerTick(double dist, boolean focused) {
+        float base = lossPerTick(dist);
+        if (!focused) return base;
+        float curve = (float) (ORIGINAL_STEPS_PER_SECOND / TICKS_PER_SECOND * Math.pow(2.0D, -dist / FOCUSED_HALVING_DIST));
+        return Math.max(base, curve);
     }
 
     /** points of loss per Minecraft tick while he is in view, by the distance in blocks. */

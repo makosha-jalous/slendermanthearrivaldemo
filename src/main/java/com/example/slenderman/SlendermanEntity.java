@@ -200,6 +200,51 @@ public class SlendermanEntity extends PathfinderMob {
     private static final boolean WALK = false;
     /** from this page on he really WALKS behind the player (no hops): with the walking animation, only while nobody looks at him. */
     private static final int WALK_FROM_STAGE = 5;
+
+    // ======================================================================================================
+    // THE ORIGINAL GAME'S LOGIC (SlenderMan.cs of Slender: The Arrival). true = the code below is used for the
+    // kill, the teleports, the walking, the sight sounds and the tentacles; false = the old logic that is still in this file.
+    // The original runs in Unity physics steps (50 per second); Minecraft has 20 ticks per second, so 1 tick = 2.5 steps.
+    // ======================================================================================================
+    private static final boolean ORIGINAL_AI = true;
+    /** view.level of the original (the difficulty): it is added to the page count in every formula. */
+    private static final int LEVEL = 0;
+    private static final double STEPS_PER_TICK = 2.5D;
+    /** jumptime 550 steps minus 50 steps for every page: a teleport check every 11 s (page 0) ... 4 s (page 7) ... 3 s (page 8). */
+    private static final int JUMP_TIME_STEPS = 550;
+    private static final int JUMP_STEPS_PER_PAGE = 50;
+    /** porttime 100 steps = 2 s: later than this after the last teleport a "real" teleport (move 2) may roll again. */
+    private static final int PORT_TIME_TICKS = 40;
+    /** chasing (he is in line of sight closer than 30 blocks): no teleport, unless he is farther than 10 blocks (then 20 % per STEP). */
+    private static final double PROXIMITY_DIST = 30.0D;
+    private static final double CHASE_TELEPORT_DIST = 10.0D;
+    private static final float CHASE_TELEPORT_CHANCE_PER_TICK = (float) (1.0D - Math.pow(0.8D, STEPS_PER_TICK));
+    /** closer than this with a clear line: the player is caught (the death scene). */
+    private static final double CATCH_DIST = 2.0D;
+    /** from this sum (pages + level) he may teleport even while the player looks at him (the focused flashlight no longer stops it). */
+    private static final int OPEN_TELEPORT_STAGE = 6;
+    /** the chance of a "real" teleport even when he is not far: 10 % at every check; after porttime 50 %. */
+    private static final float FAR_ROLL = 0.10F;
+    private static final float PORT_ROLL = 0.50F;
+    /** walking speed of the original: (pages + level) + 0.5 blocks per second (from the 2nd page, only while he is not seen). */
+    private static final double ORIGINAL_WALK_BASE = 0.5D;
+    /** 1.0 = the speed of the original in blocks per second; make it smaller to slow him down. */
+    private static final double ORIGINAL_WALK_SCALE = 1.0D;
+    /** blocks per tick of this entity at speed modifier 1.0 (MOVEMENT_SPEED 0.12 * 2.158). */
+    private static final double BLOCKS_PER_TICK_AT_ONE = 0.12D * 2.158D;
+    /** "angry" (4 sightings) or the player is inside a structure (50 %): the teleport distance is an eighth of the page distance ... */
+    private static final double NEAR_DIVISOR = 8.0D;
+    /** ... but never closer than this (the original's eighth would put him inside the player on the late pages). */
+    private static final double NEAR_MIN_DIST = 3.0D;
+    /** true = as in the original: only a FOCUSED flashlight stops him from appearing in view before page 6; false = he never appears in view. */
+    private static final boolean UNFOCUSED_MAY_APPEAR_IN_VIEW = true;
+    /** sight sounds of the original: one cooldown of 25 s, three distances. */
+    private static final int SIGHT_COOLDOWN_TICKS = 20 * 25;
+    private static final double SIGHT_NEAR = 15.0D;
+    private static final double SIGHT_MIDDLE = 25.0D;
+    private static final double SIGHT_FAR = 45.0D;
+    /** the tentacles start to grow when 20 of 100 sanity is lost and are full at 100 lost. */
+    private static final float TENTACLE_FROM = 20.0F;
     /** death scene after the black screen: the portrait (3 s), then a last black screen (about 1.2 s), then the death. */
     public static final int DEATH_PORTRAIT_TICKS = 30;
     /** the portrait lasts a random 2 .. 2.5 s (40 .. 50 ticks). */
@@ -275,6 +320,13 @@ public class SlendermanEntity extends PathfinderMob {
     private static final int STICK_FROM_STAGE = 6;
     private static final double STICK_DIST = 2.6D;
     private int lastTeleportTick = -100;
+    // ---- the original's counters (ticks): makejump / mightport / chasing / ported / lastsawrange / lastsighttime ----
+    private int makeJump = 99999;                 // jumptime at the start: the first check comes at once
+    private int mightPort = PORT_TIME_TICKS;
+    private boolean chasing = false;
+    private boolean ported = false;
+    private int lastSawRange = 0;
+    private int lastSightTick = -SIGHT_COOLDOWN_TICKS;
     private boolean prevSeen = false;
     private double prevDist = -1.0D;
     private int unseenTicks = 0;
@@ -565,11 +617,15 @@ public class SlendermanEntity extends PathfinderMob {
 
         // ---- sanity: rises while the player looks at him, falls when he does not; at 100 he kills ----
         this.trackPlayerMovement(player);
+        // the original's ProximityTest: "chasing" (line of sight, closer than 30) and "caught" (closer than 2 with a clear line)
+        final boolean caught = ORIGINAL_AI && this.proximityTest(player, dist);
         if (god) {
             // God Mode: the sanity is never lost, nothing can kill
             this.calmSanity(player);
         } else {
             this.updateSanity(player, seen, dist);
+            // original: 2 blocks or closer with a clear line = caught (no look needed); a touch below stays as it was
+            if (caught && this.beginDeath(player, seen, false)) return;
             // the player walks into him: instant death (the view turns to his face first)
             // the view turns to his face (exactly 2 s) ONLY when the player ran into him while he was in view; from behind: no turn
             // running into him unexpectedly (sprinting): the death is sudden, there is NO black screen and no turn: straight to the portrait
@@ -625,13 +681,23 @@ public class SlendermanEntity extends PathfinderMob {
         this.entityData.set(DATA_AGGRESSION, this.aggression);
         // the tentacles come out when 60 of 100 sanity is lost and go back when it has fallen below 55
         float lost = this.entityData.get(DATA_SANITY);
-        if (lost >= TENTACLE_SANITY) this.tentGoal = true;
-        else if (lost < TENTACLE_SANITY - 5.0F) this.tentGoal = false;
-        this.updateTentacles(this.tentGoal);
+        if (ORIGINAL_AI) {
+            // original GrowTentacles: the scale is (80 - sanity) * 0.01, i.e. they grow smoothly from 20 lost and are full at 100
+            this.updateTentaclesTo(Mth.clamp((lost - TENTACLE_FROM) / (SlenderSanity.MAX - TENTACLE_FROM), 0.0F, 1.0F));
+        } else {
+            if (lost >= TENTACLE_SANITY) this.tentGoal = true;
+            else if (lost < TENTACLE_SANITY - 5.0F) this.tentGoal = false;
+            this.updateTentacles(this.tentGoal);
+        }
         // (no damage in hearts from touching him any more: the sanity goes down, and a touch is always the one-hit death above)
 
+        // ---- the original's sight sounds (15 / 25 / 45 blocks, one cooldown of 25 s) ----
+        if (ORIGINAL_AI && !this.vanished && this.action == ACTION_NONE) {
+            this.originalSight(player, seen, wasSeen, dist);
+        }
+
         // ---- screamers ----
-        if (!this.vanished && this.action == ACTION_NONE) {
+        if (!ORIGINAL_AI && !this.vanished && this.action == ACTION_NONE) {
             if (seen && !wasSeen && dist <= CRITICAL_RANGE) {
                 // 1) the player turned around to him and he stands critically close
                 this.scare(true, unseenBefore);
@@ -643,7 +709,7 @@ public class SlendermanEntity extends PathfinderMob {
         }
 
         // ---- far away and in view: one random "sight" sound (plays at the player, not from him) ----
-        if (!this.vanished && seen && this.sightCooldown <= 0 && dist > CRITICAL_RANGE && dist <= SIGHT_MAX) {
+        if (!ORIGINAL_AI && !this.vanished && seen && this.sightCooldown <= 0 && dist > CRITICAL_RANGE && dist <= SIGHT_MAX) {
             this.playSight(player, dist);
         }
 
@@ -703,7 +769,7 @@ public class SlendermanEntity extends PathfinderMob {
         }
 
         // ---- teleport ability: checked every 30-50 s with the chance of the current page ----
-        if (this.tryTeleportAbility(player, seen, dist)) {
+        if (ORIGINAL_AI ? this.originalSchedule(player, dist) : this.tryTeleportAbility(player, seen, dist)) {
             this.approachTicks = 0;
             return;
         }
@@ -723,7 +789,7 @@ public class SlendermanEntity extends PathfinderMob {
         } else {
             // the player looks away: behind their back he turns to face them and comes for them
             this.updateReachability(player, dist);
-            walking = this.pursue(player, dist);
+            walking = ORIGINAL_AI ? this.originalWalk(player, dist) : this.pursue(player, dist);
             if (!walking) {
                 this.faceToward(player.position(), 60.0F);
             }
@@ -901,7 +967,8 @@ public class SlendermanEntity extends PathfinderMob {
             else this.stuckSeconds = 0;
             this.stuckPos = now;
         }
-        boolean lagging = dist > wantMax + (this.stage >= WALK_FROM_STAGE ? 8.0D : LAG_MARGIN);
+        // the original has no "catching up" hops: the teleport timers bring him back; only being stuck is helped
+        boolean lagging = !ORIGINAL_AI && dist > wantMax + (this.stage >= WALK_FROM_STAGE ? 8.0D : LAG_MARGIN);
         if (!lagging && this.stuckSeconds < 3) {
             this.lagTicks = 0;
             return;
@@ -984,6 +1051,12 @@ public class SlendermanEntity extends PathfinderMob {
         this.entityData.set(DATA_ACTION, ACTION_NONE);
         this.entityData.set(DATA_PROGRESS, 0.0F);
         this.standStill();
+    }
+
+    /** the tentacles follow a value 0..1 (the sanity loss), a little smoothed so they never jump. */
+    private void updateTentaclesTo(float target) {
+        this.tent += Mth.clamp(target - this.tent, -0.05F, 0.05F);
+        this.entityData.set(DATA_TENT, this.tent);
     }
 
     private void updateTentacles(boolean growing) {
@@ -1144,6 +1217,201 @@ public class SlendermanEntity extends PathfinderMob {
                 this.discard();   // the player has won
             }
         }
+    }
+
+    // ------------------------------------------------------------------ the original's logic (used when ORIGINAL_AI is true)
+
+    /** the original's check interval in ticks: (550 - 50 * (pages + level)) steps / 2.5 steps per tick. */
+    private int jumpThreshold(int st) {
+        return Math.max(1, (int) Math.round((JUMP_TIME_STEPS - JUMP_STEPS_PER_PAGE * (st + LEVEL)) / STEPS_PER_TICK));
+    }
+
+    /**
+     * ProximityTest of the original. While the model is there and the line is clear: closer than 30 blocks = "chasing",
+     * 2 blocks or closer = caught (returns true). Farther than 30 blocks "chasing" is off again.
+     */
+    private boolean proximityTest(Player player, double dist) {
+        if (!this.isModelShown() || this.deathPhase != 0 || player.isSpectator() || !player.isAlive()) return false;
+        if (dist < PROXIMITY_DIST) {
+            if (this.hasClearLine(player)) {
+                if (dist <= CATCH_DIST) {
+                    this.chasing = false;
+                    return true;
+                }
+                this.chasing = true;
+            }
+        } else {
+            this.chasing = false;
+        }
+        return false;
+    }
+
+    /**
+     * SlenderLogic of the original. Both counters run all the time. He may act when the player does not see him (or from
+     * page 6 on, also in view). When the interval of the current page is over:
+     *  - he is not chasing (no line of sight within 30 blocks), or he is farther than 10 blocks (20 % per step): the check is made;
+     *  - farther than the page distance (or a 10 % roll): the real teleport next to the player ("move 2");
+     *  - otherwise, after porttime (2 s) since the last one: the real teleport with 50 %;
+     *  - otherwise a small step of 4 blocks towards the player ("move 1").
+     * Returns true if he teleported (then nothing else happens in this tick).
+     */
+    private boolean originalSchedule(Player player, double dist) {
+        this.makeJump++;
+        this.mightPort++;
+        if (!autoTeleport || this.action != ACTION_NONE || this.vanished) return false;
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        boolean hidden = this.wideUnseen >= MOVE_GRACE_TICKS;
+        if (!hidden && st + LEVEL < OPEN_TELEPORT_STAGE) {
+            this.mightPort = 0;
+            return false;
+        }
+        int threshold = this.jumpThreshold(st);
+        if (this.makeJump < threshold) return false;
+        if (this.chasing && !(dist > CHASE_TELEPORT_DIST && this.random.nextFloat() < CHASE_TELEPORT_CHANCE_PER_TICK)) return false;
+        this.makeJump = 0;
+        boolean tried = true;
+        boolean done;
+        if ((dist > BAND_MAX[st] || this.random.nextFloat() <= FAR_ROLL) && st < SlenderPages.TOTAL) {
+            done = this.moveTwo(player, st);
+        } else if (this.mightPort > PORT_TIME_TICKS) {
+            this.mightPort = 0;
+            tried = this.random.nextFloat() <= PORT_ROLL;
+            done = tried && this.moveTwo(player, st);
+        } else {
+            done = this.moveOne(player, st);
+        }
+        if (tried && !done) this.makeJump = Math.max(0, threshold - 20);   // no spot found: the next try comes in a second
+        return done;
+    }
+
+    /**
+     * CalculateMove(2): he appears at a random angle around the player at a distance of the page band (BAND_MIN..BAND_MAX).
+     * "Angry" (4 sightings) or the player inside a structure (50 %): an eighth of that distance (never closer than NEAR_MIN_DIST).
+     * Before page 6 a FOCUSED flashlight only lets him appear where the player cannot see him; if that fails, he appears
+     * behind the player (the side away from him), like the original's retry.
+     */
+    private boolean moveTwo(Player player, int st) {
+        boolean indoors = this.playerIndoors(player);
+        double lo = BAND_MIN[st];
+        double hi = BAND_MAX[st];
+        boolean near = this.angry || (indoors && this.random.nextFloat() > 0.5F);
+        if (near) {
+            lo = Math.max(NEAR_MIN_DIST, lo / NEAR_DIVISOR);
+            hi = Math.max(lo + 0.8D, hi / NEAR_DIVISOR);
+        }
+        boolean needHidden = st + LEVEL < OPEN_TELEPORT_STAGE
+                && (!UNFOCUSED_MAY_APPEAR_IN_VIEW || FlashlightLink.isOnAndFocused(player));
+        int planeDy = indoors ? 1 : 3;
+        double awayAngle = Math.atan2(player.getZ() - this.getZ(), player.getX() - this.getX());
+        for (int attempt = 0; attempt < 72; attempt++) {
+            boolean behind = attempt >= 60;
+            double angle = behind ? awayAngle + Math.toRadians((this.random.nextDouble() - 0.5D) * 50.0D)
+                    : this.random.nextDouble() * Math.PI * 2.0D;
+            double distance = lo + this.random.nextDouble() * (hi - lo);
+            double x = player.getX() + Math.cos(angle) * distance;
+            double z = player.getZ() + Math.sin(angle) * distance;
+            if (this.tooCloseToPlayer(player, x, z)) continue;
+            double need = attempt < 24 ? 4.0D : (attempt < 44 ? 3.0D : 2.0D);
+            double y = this.findGround(x, z, player.getY(), need, planeDy);
+            if (Double.isNaN(y)) continue;
+            // inside a structure he appears inside it, on the same floor (a roof above the spot)
+            if (indoors && attempt < 48 && !this.hasRoof(x, y + 1.0D, z)) continue;
+            if (needHidden && !behind && this.isSpotSeen(player, x, y, z)) continue;
+            float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
+            this.relocate(x, y, z, yaw);
+            if (near) this.angry = false;
+            return true;
+        }
+        return false;
+    }
+
+    /** CalculateMove(1): a step of 4 blocks towards the player; when he is already inside the band, a random spot around himself. */
+    private boolean moveOne(Player player, int st) {
+        double dist = this.distanceTo(player);
+        if (dist > BAND_MIN[st]) {
+            return this.creepCloser(player, 4.0D, CATCH_DIST + 0.6D);
+        }
+        for (int attempt = 0; attempt < 24; attempt++) {
+            double angle = this.random.nextDouble() * Math.PI * 2.0D;
+            double r = BAND_MIN[st] + 1.0D + this.random.nextDouble() * 3.0D;
+            double x = this.getX() + Math.cos(angle) * r;
+            double z = this.getZ() + Math.sin(angle) * r;
+            double dx = x - player.getX();
+            double dz = z - player.getZ();
+            if (dx * dx + dz * dz < (CATCH_DIST + 0.6D) * (CATCH_DIST + 0.6D)) continue;
+            double y = this.findGround(x, z, this.getY(), 4.0D, this.planeDy(player));
+            if (Double.isNaN(y)) continue;
+            float yaw = (float) (Mth.atan2(player.getZ() - z, player.getX() - x) * 57.29577951308232D) - 90.0F;
+            this.relocate(x, y, z, yaw);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * The walking of the original: from the 2nd page, after his first teleport, only while the player does not see him
+     * (this method runs only then): towards the player at (pages + level) + 0.5 blocks per second. There is no distance band:
+     * the teleports bring him back to the page distance, and 2 blocks with a clear line is the end.
+     */
+    private boolean originalWalk(Player player, double dist) {
+        int st = Mth.clamp(this.stage, 1, SlenderPages.TOTAL);
+        if (!this.ported || st <= 1 || this.hiding || dist <= CONTACT_DIST) {
+            this.getNavigation().stop();
+            return false;
+        }
+        double blocksPerSecond = (st + LEVEL + ORIGINAL_WALK_BASE) * ORIGINAL_WALK_SCALE;
+        double mul = blocksPerSecond / 20.0D / BLOCKS_PER_TICK_AT_ONE;
+        Vec3 goal = player.position();
+        this.walkToward(goal.x, goal.y, goal.z, mul);
+        this.watchProgress(player, dist, CATCH_DIST);
+        return true;
+    }
+
+    /**
+     * LowerSanity's sounds of the original, one cooldown of 25 s for all of them:
+     *  - closer than 15 blocks (a screamer, with its animation): needs the cooldown, or a sound of a farther distance before it;
+     *  - closer than 25 blocks, the moment he comes into view: the "middle" sight sounds (the cooldown, or a "far" sound before it);
+     *  - closer than 45 blocks, the moment he comes into view: the "far" sight sounds.
+     * The animation of the screamer is chosen as before.
+     */
+    private void originalSight(Player player, boolean seen, boolean wasSeen, double dist) {
+        if (!seen || !this.isModelShown()) return;
+        boolean cooldownOver = this.tickCount - this.lastSightTick >= SIGHT_COOLDOWN_TICKS;
+        boolean fresh = !wasSeen;
+        if (dist < SIGHT_NEAR && (cooldownOver || this.lastSawRange > 0)) {
+            this.lastSawRange = 0;
+            this.lastSightTick = this.tickCount;
+            this.scareCooldown = 0;                 // the shared cooldown of the original replaces the old one
+            this.scare(true, this.unseenTicks);
+        } else if (fresh && dist < SIGHT_MIDDLE && (cooldownOver || this.lastSawRange > 1)) {
+            this.lastSawRange = 1;
+            this.lastSightTick = this.tickCount;
+            this.blipSeq = (this.blipSeq + 1) % 100000;
+            this.entityData.set(DATA_BLIP, this.blipSeq);
+            this.sendCue(30 + this.random.nextInt(SlendermanMod.MID_SIGHTS.size()));
+        } else if (fresh && cooldownOver && dist < SIGHT_FAR) {
+            this.lastSawRange = 2;
+            this.lastSightTick = this.tickCount;
+            this.blipSeq = (this.blipSeq + 1) % 100000;
+            this.entityData.set(DATA_BLIP, this.blipSeq);
+            this.sendCue(10 + this.random.nextInt(SlendermanMod.SIGHTS.size()));
+        }
+    }
+
+    /** a spot (where he would stand) that the player could see now: inside the wide view cone with a clear line to it. */
+    private boolean isSpotSeen(Player player, double x, double y, double z) {
+        Vec3 eye = player.getEyePosition();
+        Vec3 view = player.getViewVector(1.0F).normalize();
+        for (double h : new double[]{3.6D, 2.0D, 0.6D}) {
+            Vec3 p = new Vec3(x, y + h, z);
+            Vec3 to = p.subtract(eye);
+            double len = to.length();
+            if (len < 0.5D) return true;
+            if (view.dot(to.scale(1.0D / len)) < WIDE_SEEN_COS) continue;
+            BlockHitResult hit = this.level.clip(new ClipContext(eye, p, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+            if (hit.getType() == HitResult.Type.MISS || hit.getLocation().distanceToSqr(p) < 0.25D) return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ teleport ability
@@ -1420,8 +1688,9 @@ public class SlendermanEntity extends PathfinderMob {
         // right behind the player's back (roaming.ogg plays): the sanity goes down even without looking at him
         boolean behind = modelVisible && dist <= BEHIND_RANGE && this.isBehind(player) && this.hasClearLine(player);
         if (looking || behind) {
-            value += SlenderSanity.lossPerTick(dist);
-            this.sanityDelay = SANITY_RECOVER_DELAY;
+            // the flashlight of the original: focused = 2^(-d/10), otherwise 2^(-d*2/10)
+            value += SlenderSanity.lossPerTick(dist, ORIGINAL_AI && FlashlightLink.isOnAndFocused(player));
+            this.sanityDelay = ORIGINAL_AI ? 0 : SANITY_RECOVER_DELAY;     // the original recovers at once, without a pause
             this.recoverRate = 0.0F;
         } else if (this.sanityDelay > 0) {
             this.sanityDelay--;
@@ -1507,7 +1776,7 @@ public class SlendermanEntity extends PathfinderMob {
         this.deathTicks = 0;
         this.deathSanityStart = SlenderSanity.get(player);
         // the turn lasts exactly as long as the sanity needs to fall from where it is to 100 at his distance (close: about a second)
-        float rate = SlenderSanity.lossPerTick(this.distanceTo(player));
+        float rate = SlenderSanity.lossPerTick(this.distanceTo(player), ORIGINAL_AI && FlashlightLink.isOnAndFocused(player));
         int turnTicks = rate > 0.0F ? (int) Math.ceil((SlenderSanity.MAX - this.deathSanityStart) / rate) : DEATH_TURN_TICKS;
         this.entityData.set(DATA_TURN, Mth.clamp(turnTicks, 12, DEATH_TURN_TICKS));
         this.entityData.set(DATA_DEATH, this.deathPhase);
@@ -1796,6 +2065,7 @@ public class SlendermanEntity extends PathfinderMob {
     private void relocate(double x, double y, double z, float yaw) {
         boolean longJump = this.position().distanceTo(new Vec3(x, y, z)) > 4.0D;   // creeping steps are not "teleports"
         this.moveTo(x, y, z, yaw, 0.0F);
+        this.ported = true;       // the original's "ported": from now on he may walk
         this.setInvisible(false);
         this.yBodyRot = yaw;
         this.yHeadRot = yaw;
@@ -1829,6 +2099,8 @@ public class SlendermanEntity extends PathfinderMob {
 
     /** 3) he teleported right in front of the player in dangerous closeness -> screamer. */
     private void afterTeleport(Player player) {
+        // original: the sight logic (15 blocks + cooldown) decides about sounds; "angry" is used up only by a real near teleport
+        if (ORIGINAL_AI) return;
         this.angry = false;
         if (this.distanceTo(player) <= CRITICAL_RANGE && this.isInFront(player)) {
             this.scare(false, this.unseenTicks);
