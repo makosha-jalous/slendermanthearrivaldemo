@@ -219,8 +219,10 @@ public class SlendermanEntity extends PathfinderMob {
     private static final double PROXIMITY_DIST = 30.0D;
     private static final double CHASE_TELEPORT_DIST = 10.0D;
     private static final float CHASE_TELEPORT_CHANCE_PER_TICK = (float) (1.0D - Math.pow(0.8D, STEPS_PER_TICK));
-    /** closer than this with a clear line: the player is caught (the death scene). */
+    /** the original catches the player at this distance with a clear line (no look needed). */
     private static final double CATCH_DIST = 2.0D;
+    /** false = NO instant kill at 2 blocks (it felt unfair in Minecraft): only a touch kills at once; standing behind him drains the sanity. */
+    private static final boolean KILL_AT_CATCH_DIST = false;
     /** from this sum (pages + level) he may teleport even while the player looks at him (the focused flashlight no longer stops it). */
     private static final int OPEN_TELEPORT_STAGE = 6;
     /** the chance of a "real" teleport even when he is not far: 10 % at every check; after porttime 50 %. */
@@ -240,7 +242,10 @@ public class SlendermanEntity extends PathfinderMob {
     private static final boolean UNFOCUSED_MAY_APPEAR_IN_VIEW = true;
     /** sight sounds of the original: one cooldown of 25 s, three distances. */
     private static final int SIGHT_COOLDOWN_TICKS = 20 * 25;
-    private static final double SIGHT_NEAR = 15.0D;
+    /** the screamer (the dramatic sound and its animation) only plays closer than this (the original has 15, too far for Minecraft). */
+    private static final double SIGHT_NEAR = 4.0D;
+    /** at this distance and closer he REACHES out with his hand; farther (up to SIGHT_NEAR) he slowly BOWS to the player. */
+    private static final double SCARE_REACH_DIST = 2.5D;
     private static final double SIGHT_MIDDLE = 25.0D;
     private static final double SIGHT_FAR = 45.0D;
     /** the tentacles start to grow when 20 of 100 sanity is lost and are full at 100 lost. */
@@ -325,6 +330,7 @@ public class SlendermanEntity extends PathfinderMob {
     private int mightPort = PORT_TIME_TICKS;
     private boolean chasing = false;
     private boolean ported = false;
+    private int forcedAnim = 0;                   // 0 = chosen by chance (old logic); otherwise ACTION_LUNGE / ACTION_PEEK
     private int lastSawRange = 0;
     private int lastSightTick = -SIGHT_COOLDOWN_TICKS;
     private boolean prevSeen = false;
@@ -1081,7 +1087,8 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.action != ACTION_NONE) return;
         float reachW = REACH_BY[this.stage], bowW = BOW_BY[this.stage];
         if (reachW + bowW <= 0F) { reachW = REACH_CHANCE; bowW = BOW_CHANCE; }     // pages 1-2 have no chances: use the general ones
-        int anim = this.random.nextFloat() * (reachW + bowW) < reachW ? ACTION_LUNGE : ACTION_PEEK;
+        int anim = this.forcedAnim != 0 ? this.forcedAnim
+                : (this.random.nextFloat() * (reachW + bowW) < reachW ? ACTION_LUNGE : ACTION_PEEK);
         this.animCooldown = (int) ((ANIM_COOLDOWN_MIN + this.random.nextInt(ANIM_COOLDOWN_RANDOM + 1)) * SCARE_SCALE[this.stage]);
         if (anim == ACTION_LUNGE) {
             this.startAction(ACTION_LUNGE, LUNGE_TICKS);
@@ -1234,11 +1241,11 @@ public class SlendermanEntity extends PathfinderMob {
         if (!this.isModelShown() || this.deathPhase != 0 || player.isSpectator() || !player.isAlive()) return false;
         if (dist < PROXIMITY_DIST) {
             if (this.hasClearLine(player)) {
-                if (dist <= CATCH_DIST) {
+                this.chasing = true;
+                if (dist <= CATCH_DIST && KILL_AT_CATCH_DIST) {
                     this.chasing = false;
                     return true;
                 }
-                this.chasing = true;
             }
         } else {
             this.chasing = false;
@@ -1382,7 +1389,9 @@ public class SlendermanEntity extends PathfinderMob {
             this.lastSawRange = 0;
             this.lastSightTick = this.tickCount;
             this.scareCooldown = 0;                 // the shared cooldown of the original replaces the old one
+            this.forcedAnim = dist <= SCARE_REACH_DIST ? ACTION_LUNGE : ACTION_PEEK;   // the animation fits the distance
             this.scare(true, this.unseenTicks);
+            this.forcedAnim = 0;
         } else if (fresh && dist < SIGHT_MIDDLE && (cooldownOver || this.lastSawRange > 1)) {
             this.lastSawRange = 1;
             this.lastSightTick = this.tickCount;

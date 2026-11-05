@@ -88,8 +88,15 @@ public final class SlenderDistortion {
     private static final float CA_ALPHA_BOOST = 1.8F;
 
     // ---- "overexposure" burst when he is close: burnt light, brown blacks (sepia), like flashes together with the distortion
-    private static final double EXPOSE_FAR = 9.0D;      // starts at this distance (blocks) ...
+    private static final double EXPOSE_FAR = 9.0D;      // the BENDING (and the colour split) grows from this distance (blocks) ...
     private static final double EXPOSE_NEAR = 4.0D;     // ... and is at its full strength at this distance
+    /**
+     * the OVERLAY of light (brighter colours, blacks turning orange) is visible much earlier: it starts to fade in at LIGHT_FAR
+     * blocks and is at full strength from LIGHT_NEAR blocks and closer, so it can be seen before the interference of the camera
+     * covers the picture (it was only seen at 4 blocks and closer).
+     */
+    private static final double LIGHT_FAR = 24.0D;
+    private static final double LIGHT_NEAR = 14.0D;
     /** inside the rectangle (the shader): the colours fade (0..1), the contrast and the brightness are pushed up. NOT a colour layer. */
     private static final float EXPOSE_DESAT = 0.0F;
     private static final float EXPOSE_CONTRAST = 1.2F;
@@ -293,7 +300,8 @@ public final class SlenderDistortion {
         RenderSystem.setShader(() -> mask);
         RenderSystem.setShaderTexture(0, copy.getColorTextureId());
         mask.safeGetUniform("MaskScreen").set((float) tw, (float) th);
-        mask.safeGetUniform("Effect").set(EXPOSE_DESAT * k, EXPOSE_CONTRAST * k, EXPOSE_BRIGHT * k, ca);
+        float kl = lightK(depth) * (0.55F + 0.45F * strength);
+        mask.safeGetUniform("Effect").set(EXPOSE_DESAT * kl, EXPOSE_CONTRAST * kl, EXPOSE_BRIGHT * kl, ca);
         mask.safeGetUniform("Wave").set(base * gain, t, MASK_WAVES, base / TRANSPARENCY * CA_ALPHA_BOOST);
         mask.safeGetUniform("Edge").set(FEATHER, 0F, 0F, 0F);
 
@@ -482,8 +490,7 @@ public final class SlenderDistortion {
         float ca = Mth.lerp(nearK, CA_SHIFT, NEAR_CA_SHIFT) * (0.7F + 0.3F * strength);
         if (fx != null) {
             // one pass: bending + chromatic aberration + (near him) faded colours, more contrast and brightness
-            float k = Mth.clamp((float) ((EXPOSE_FAR - depth) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
-            k = k * k * (3F - 2F * k) * (0.55F + 0.45F * strength);   // the flashes: a new strength every moment
+            float k = lightK(depth) * (0.55F + 0.45F * strength);   // the flashes: a new strength every moment
             RenderSystem.setShader(() -> fx);
             RenderSystem.setShaderTexture(0, copy.getColorTextureId());
             fx.safeGetUniform("Effect").set(EXPOSE_DESAT * k, EXPOSE_CONTRAST * k, EXPOSE_BRIGHT * k, ca);
@@ -519,12 +526,17 @@ public final class SlenderDistortion {
         RenderSystem.colorMask(true, true, true, false);
     }
 
+    /** 0..1: how strong the overlay of light is at this distance (smooth). */
+    private static float lightK(double depth) {
+        float k = Mth.clamp((float) ((LIGHT_FAR - depth) / (LIGHT_FAR - LIGHT_NEAR)), 0F, 1F);
+        return k * k * (3F - 2F * k);
+    }
+
     /** when he is close: a burst of overexposure inside the rectangle (light pushed up, blacks turn brown, colours burn out). */
     private static void exposure(Matrix4f m, float[] r, int gw, int gh) {
         float d = r[4];
-        float k = Mth.clamp((float) ((EXPOSE_FAR - d) / (EXPOSE_FAR - EXPOSE_NEAR)), 0F, 1F);
+        float k = lightK(d);
         if (k <= 0.001F) return;
-        k = k * k * (3F - 2F * k);
         float x0 = r[0] * gw, x1 = r[2] * gw, y0 = (1F - r[3]) * gh, y1 = (1F - r[1]) * gh;
         float flash = 0.55F + 0.45F * strength;          // the flashes: a new strength every moment the distortion is on
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
