@@ -207,6 +207,13 @@ public class SlendermanEntity extends PathfinderMob {
     // The original runs in Unity physics steps (50 per second); Minecraft has 20 ticks per second, so 1 tick = 2.5 steps.
     // ======================================================================================================
     private static final boolean ORIGINAL_AI = true;
+    /** true = the stage also grows with time: +1 stage every TIME_STAGE_MINUTES after the first page (see timedPages). */
+    private static final boolean TIME_STAGES = true;
+    private static final double TIME_STAGE_MINUTES = 5.0D;
+    private static final long TIME_STAGE_TICKS = (long) (TIME_STAGE_MINUTES * 60.0D * 20.0D);
+    /** time alone never goes beyond this stage (the 8th is the finale: it needs the real 8th page). */
+    private static final int TIME_STAGE_MAX = 7;
+    private static final String FIRST_PAGE_KEY = "slender_first_page_time";
     /** view.level of the original (the difficulty): it is added to the page count in every formula. */
     private static final int LEVEL = 0;
     private static final double STEPS_PER_TICK = 2.5D;
@@ -1123,10 +1130,29 @@ public class SlendermanEntity extends PathfinderMob {
 
     // ------------------------------------------------------------------ aggression stages
 
+    /**
+     * The aggression of the original also grows with TIME, so nobody can relax: from the first page on, every 5 minutes raise
+     * the stage by one, even if the next page was not found (5 min = the 2nd page, 10 min = the 3rd, ... at most the 7th: the 8th
+     * needs the real page). The real pages count as before; the higher of the two wins. The clock is the game time of the
+     * server (it stands still while the game is paused), it starts with the first page and is cleared when the pages are reset.
+     */
+    private int timedPages(Player player, int pages) {
+        net.minecraft.nbt.CompoundTag data = player.getPersistentData();
+        if (!TIME_STAGES || pages <= 0 || pages >= SlenderPages.TOTAL) {
+            if (pages <= 0 && data.contains(FIRST_PAGE_KEY)) data.remove(FIRST_PAGE_KEY);
+            return pages;
+        }
+        long now = player.level.getGameTime();
+        if (!data.contains(FIRST_PAGE_KEY) || data.getLong(FIRST_PAGE_KEY) > now) data.putLong(FIRST_PAGE_KEY, now);
+        long since = now - data.getLong(FIRST_PAGE_KEY);
+        int timed = 1 + (int) (since / TIME_STAGE_TICKS);
+        return Math.max(pages, Math.min(TIME_STAGE_MAX, timed));
+    }
+
     /** the stage follows the pages of the player he hunts; the 8th page starts the finale. */
     private void updateStage(Player player) {
         int pages = SlenderPages.get(player);
-        this.stage = Mth.clamp(pages, 1, SlenderPages.TOTAL);
+        this.stage = Mth.clamp(this.timedPages(player, pages), 1, SlenderPages.TOTAL);
         if (pages >= SlenderPages.TOTAL) {
             if (this.finalePhase == FINALE_NONE) this.startFinale(player);
         } else if (this.finalePhase != FINALE_NONE) {
