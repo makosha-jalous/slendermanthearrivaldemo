@@ -115,8 +115,16 @@ public final class SlenderDistortion {
     // ---- the mask in the world
     /** how far in front of him (towards the player) the plane stands (blocks); it never gets closer than 40% of the way to the player. */
     private static final double MASK_OFFSET = 0.9D;
+    /** the plane reaches from below the ground (the depth test of the game cuts it at the ground) to this far above his head (blocks). */
+    private static final double MASK_BELOW = 0.7D;
+    private static final double MASK_ABOVE = 1.0D;
+    /** the burn-out of the light parts of the picture (0..1) and the warm streaks in the dark parts: they are NOT a light overlay. */
+    private static final float BURN = 1.0F;
+    private static final float WARM = 0.12F;
     /** how many waves fit into the height of the plane (the old screen version had dozens: that was too many). */
-    private static final float MASK_WAVES = 4.0F;
+    private static final float MASK_WAVES = 5.0F;
+    /** how strong the bending of the plane is against the old screen version (the original bends the picture less: ghosts and ripples, not melting). */
+    private static final float MASK_AMOUNT = 0.30F;
 
     @Mod.EventBusSubscriber(modid = SlendermanMod.ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static final class Reg {
@@ -148,7 +156,7 @@ public final class SlenderDistortion {
 
     private static long nextRoll;
     private static boolean on;
-    private static float phase, strength, tint;
+    private static float phase, strength, tint, stretch;
     private static int mode;
 
     private SlenderDistortion() {}
@@ -241,6 +249,7 @@ public final class SlenderDistortion {
             phase = RNG.nextFloat() * 6.2831853F;
             strength = 0.55F + 0.45F * RNG.nextFloat();
             tint = RNG.nextFloat();
+            stretch = RNG.nextFloat();      // every flash has its own stretch of the waves
             mode = RNG.nextInt(3);          // 0 burnt, 1 washed out, 2 both
         }
     }
@@ -265,7 +274,7 @@ public final class SlenderDistortion {
         double rx = nz, rz = -nx;                             // to the right, seen from the camera
         double off = Math.min(MASK_OFFSET, flat * 0.4D);
         double hw = 0.3D + PAD_SIDE;
-        double y0 = ip.y - PAD_UPDOWN, y1 = ip.y + s.getBbHeight() + PAD_UPDOWN;
+        double y0 = ip.y - MASK_BELOW, y1 = ip.y + s.getBbHeight() + MASK_ABOVE;
         double cx = ip.x + nx * off, cz = ip.z + nz * off;
         float depth = (float) ip.distanceTo(cam);
 
@@ -301,9 +310,9 @@ public final class SlenderDistortion {
         RenderSystem.setShaderTexture(0, copy.getColorTextureId());
         mask.safeGetUniform("MaskScreen").set((float) tw, (float) th);
         float kl = lightK(depth) * (0.55F + 0.45F * strength);
-        mask.safeGetUniform("Effect").set(EXPOSE_DESAT * kl, EXPOSE_CONTRAST * kl, EXPOSE_BRIGHT * kl, ca);
-        mask.safeGetUniform("Wave").set(base * gain, t, MASK_WAVES, base / TRANSPARENCY * CA_ALPHA_BOOST);
-        mask.safeGetUniform("Edge").set(FEATHER, 0F, 0F, 0F);
+        mask.safeGetUniform("Effect").set(BURN * kl, WARM * kl, 0F, ca);
+        mask.safeGetUniform("Wave").set(base * gain * MASK_AMOUNT * (0.6F + 0.8F * strength), t, MASK_WAVES, base / TRANSPARENCY * CA_ALPHA_BOOST);
+        mask.safeGetUniform("Edge").set(FEATHER, stretch, phase / 6.2831853F, 0F);
 
         Matrix4f m = e.getPoseStack().last().pose();
         double[][] c = {

@@ -272,7 +272,9 @@ public class SlendermanEntity extends PathfinderMob {
     public static final int DEATH_TURN_TICKS = 30;
     /** the shortest turn (a loss close to 100): 1 s. */
     public static final int DEATH_TURN_MIN_TICKS = 20;
-    public static final int DEATH_BLACK_TICKS = 20;     // the black screen before the portrait: 1 s
+    /** the black screen before the portrait is ALWAYS there (also when the player ran into him) and lasts a random 1 .. 1.5 s. */
+    public static final int DEATH_BLACK_MIN_TICKS = 20;
+    public static final int DEATH_BLACK_MAX_TICKS = 30;
     /** blocks per tick (walking = 0.215, sprinting = 0.28). */
     private static final double RUN_SPEED = 0.24D;
     /** closer than this and behind the player's back (roaming.ogg plays) he takes the sanity without being looked at. */
@@ -392,6 +394,8 @@ public class SlendermanEntity extends PathfinderMob {
     private int deathPhase = 0;
     /** the player ran into him: after the turn the black screen is skipped. */
     private boolean deathSkipBlack = false;
+    /** how long the black screen lasts this time (ticks). */
+    private int blackTicks = DEATH_BLACK_MIN_TICKS;
     /** /slender animations walk: he walks to the player for this many ticks, nothing else. */
     private int demoWalkTicks = 0;
     /** how long the portrait lasts this time (ticks). */
@@ -641,10 +645,9 @@ public class SlendermanEntity extends PathfinderMob {
             if (caught && this.beginDeath(player, seen, false)) return;
             // the player walks into him: instant death (the view turns to his face first)
             // the view turns to his face (exactly 2 s) ONLY when the player ran into him while he was in view; from behind: no turn
-            // running into him unexpectedly (sprinting): the death is sudden, there is NO black screen and no turn: straight to the portrait
+            // running into him: the view turns to his face, then the black screen (it is never skipped), then the portrait
             if (this.touchesPlayer(player)) {
                 boolean sudden = player.isSprinting() || this.playerSpeed > RUN_SPEED;
-                // sudden (ran into him): the slow turn to his face stays, but when the sanity is gone the portrait comes at once (no black screen)
                 if (this.beginDeath(player, seen || sudden, sudden)) return;
             }
             if (this.sanityRush) {
@@ -1800,14 +1803,14 @@ public class SlendermanEntity extends PathfinderMob {
         return this.beginDeath(player, turn, false);
     }
 
-    /** sudden = true: the black screen before the portrait is skipped (the portrait starts at once). */
+    /** sudden is kept only for the callers: the black screen before the portrait is NEVER skipped any more. */
     private boolean beginDeath(Player player, boolean turn, boolean sudden) {
         if (this.deathPhase != 0 || !player.isAlive()) return false;
         if (SlenderModes.isGod(player)) return false;     // God Mode: no death scene at all
         this.deathVictim = player.getUUID();
-        this.deathSkipBlack = sudden;
-        this.deathPhase = turn ? 1 : (sudden ? 3 : 2);
-        if (this.deathPhase == 3) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
+        this.deathSkipBlack = false;                       // the black screen is never skipped any more
+        this.blackTicks = DEATH_BLACK_MIN_TICKS + this.random.nextInt(DEATH_BLACK_MAX_TICKS - DEATH_BLACK_MIN_TICKS + 1);
+        this.deathPhase = turn ? 1 : 2;
         this.deathTicks = 0;
         this.deathSanityStart = SlenderSanity.get(player);
         // the turn lasts exactly as long as the sanity needs to fall from where it is to 100 at his distance (close: about a second)
@@ -1820,7 +1823,7 @@ public class SlendermanEntity extends PathfinderMob {
         if (this.action != ACTION_NONE) this.endAction();
         this.standStill();
         // the player cannot walk away during the scene
-        int total = (turn ? DEATH_TURN_TICKS : 0) + (sudden ? 0 : DEATH_BLACK_TICKS) + DEATH_PORTRAIT_MAX_TICKS + DEATH_END_TICKS + 20;
+        int total = (turn ? DEATH_TURN_TICKS : 0) + DEATH_BLACK_MAX_TICKS + DEATH_PORTRAIT_MAX_TICKS + DEATH_END_TICKS + 20;
         player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, total, 6, false, false, false));
         return true;
     }
@@ -1947,13 +1950,12 @@ public class SlendermanEntity extends PathfinderMob {
         SlenderSanity.set(victim, lostNow);
         this.entityData.set(DATA_SANITY, lostNow);
         int limit = this.deathPhase == 1 ? Math.max(1, this.getTurnTicks())
-                : this.deathPhase == 2 ? DEATH_BLACK_TICKS
+                : this.deathPhase == 2 ? this.blackTicks
                 : this.deathPhase == 3 ? this.portraitTicks : DEATH_END_TICKS;
         if (++this.deathTicks < limit) return;
         if (this.deathPhase < 4) {
             // 1 turn -> 2 black screen -> 3 portrait -> 4 last black screen -> the death
             this.deathPhase++;
-            if (this.deathPhase == 2 && this.deathSkipBlack) this.deathPhase = 3;      // ran into him: no black screen, the portrait comes at once
             this.deathTicks = 0;
             if (this.deathPhase == 3) this.portraitTicks = DEATH_PORTRAIT_TICKS + this.random.nextInt(DEATH_PORTRAIT_MAX_TICKS - DEATH_PORTRAIT_TICKS + 1);
             this.entityData.set(DATA_DEATH, this.deathPhase);

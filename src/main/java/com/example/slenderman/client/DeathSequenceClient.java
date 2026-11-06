@@ -8,6 +8,7 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.vertex.BufferUploader;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL30;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
@@ -205,6 +206,8 @@ public final class DeathSequenceClient {
                 glowFlick = 1.0F;
                 processedStep = -1L;
                 epochNs = System.nanoTime();
+                scratchUntil = 0L;                // the scratches of the portrait start fresh
+                scratchLast = 0L;
                 try {
                     lightInst = new DeathLoop("death_light");
                     mediumInst = new DeathLoop("death_medium");
@@ -836,8 +839,109 @@ public final class DeathSequenceClient {
         GuiComponent.blit(ps, 0, ya, w, yb - ya, u0, v0 + (float) (ya * g), regionW, regionH, NOISE_TEX, NOISE_TEX);
     }
 
+    // ------------------------------------------------------------------------------------------
+    //  THE GRAIN AND THE SCRATCHES OF THE CAMERA (the textures of the original game, they belong to the camera mod "slendercam").
+    //  Everything that was drawn as grain on the death screens (the black screen, the portrait, the retry menu) now uses them, with
+    //  the same strengths and the same movement (a new place of the texture every frame) as the old grain. The way they are added to
+    //  the picture is the one of the camera:   picture += (texture * 2 - 1) * intensity   (two passes: add "pos", subtract "neg").
+    //  The scratches (only in the portrait) repeat the strength of the grain: when the grain flashes stronger, they are stronger.
+    //  If the camera mod is not installed, the old grain of this mod is drawn instead.
+    // ------------------------------------------------------------------------------------------
+    private static final ResourceLocation GRAIN_POS = new ResourceLocation("slendercam", "textures/gui/noise_grain_pos.png");
+    private static final ResourceLocation GRAIN_NEG = new ResourceLocation("slendercam", "textures/gui/noise_grain_neg.png");
+    private static final ResourceLocation SCRATCH_POS = new ResourceLocation("slendercam", "textures/gui/noise_scratch_pos.png");
+    private static final ResourceLocation SCRATCH_NEG = new ResourceLocation("slendercam", "textures/gui/noise_scratch_neg.png");
+    private static final int GRAIN_TEX_SIZE = 256, SCRATCH_TEX_SIZE = 512;
+    /** strength of the camera grain against the old grain (1 = the same number as before). */
+    private static final float DEATH_GRAIN_GAIN = 1.0F;
+    /** strength of the scratches against the strength of the grain of the moment (they follow its flashes). */
+    private static final float DEATH_SCRATCH_GAIN = 1.5F;
+    private static Boolean cameraGrain = null;
+    private static float scratchU, scratchV, scratchDU, scratchDV, scratchOp = 1F, scratchFlick = 1F;
+    private static long scratchUntil, scratchLast;
+
+    private static boolean cameraGrainAvailable(Minecraft mc) {
+        if (cameraGrain == null) {
+            try {
+                var rm = mc.getResourceManager();
+                cameraGrain = rm.getResource(GRAIN_POS).isPresent() && rm.getResource(GRAIN_NEG).isPresent()
+                        && rm.getResource(SCRATCH_POS).isPresent() && rm.getResource(SCRATCH_NEG).isPresent();
+            } catch (Throwable t) {
+                cameraGrain = false;
+            }
+        }
+        return cameraGrain;
+    }
+
+    /** the scratches of the camera (the technique of CameraHud): a new place every 40-240 ms, drifting in between; returns the strength. */
+    private static float deathScratchStrength(float grainAlpha) {
+        long now = System.currentTimeMillis();
+        float dt = scratchLast == 0L ? 0F : Math.min(0.1F, (now - scratchLast) / 1000F);
+        scratchLast = now;
+        if (now >= scratchUntil) {
+            scratchU = NOISE_RND.nextInt(SCRATCH_TEX_SIZE);
+            scratchV = NOISE_RND.nextInt(SCRATCH_TEX_SIZE);
+            scratchDU = (NOISE_RND.nextFloat() - 0.5F) * 60F;
+            scratchDV = (NOISE_RND.nextFloat() - 0.5F) * 200F;
+            scratchOp = 0.45F + 0.55F * NOISE_RND.nextFloat();
+            scratchUntil = now + 40L + (long) (NOISE_RND.nextFloat() * 200F);
+        }
+        scratchU += scratchDU * dt;
+        scratchV += scratchDV * dt;
+        scratchFlick = 0.75F + 0.25F * NOISE_RND.nextFloat();
+        return DEATH_SCRATCH_GAIN * grainAlpha * scratchOp * scratchFlick;
+    }
+
+    private static void drawCameraGrain(PoseStack ps, int w, int h, float alpha) {
+        Minecraft mc = Minecraft.getInstance();
+        double g = mc.getWindow().getGuiScale();
+        int regionW = Math.max(1, (int) Math.round(w * g));
+        // the grain: a new random place of the texture every frame (the same as the old grain)
+        signedLayer(ps, w, h, g, regionW, NOISE_RND.nextInt(GRAIN_TEX_SIZE), NOISE_RND.nextInt(GRAIN_TEX_SIZE),
+                alpha * DEATH_GRAIN_GAIN, GRAIN_POS, GRAIN_NEG, GRAIN_TEX_SIZE);
+        if (phase == 3) {
+            float si = deathScratchStrength(alpha);
+            signedLayer(ps, w, h, g, regionW, scratchU, scratchV, si, SCRATCH_POS, SCRATCH_NEG, SCRATCH_TEX_SIZE);
+        }
+    }
+
+    /** picture += (texture * 2 - 1) * intensity over the whole screen: "+ intensity * pos" (add), then "- intensity * neg" (reverse subtract). */
+    private static void signedLayer(PoseStack ps, int w, int h, double g, int regionW, float u0, float v0, float intensity,
+                                    ResourceLocation pos, ResourceLocation neg, int texSize) {
+        if (intensity <= 0.002F) return;
+        int regionH = Math.max(1, (int) Math.round(h * g));
+        try {
+            RenderSystem.enableBlend();
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE);
+            RenderSystem.colorMask(true, true, true, false);
+            RenderSystem.disableCull();
+            RenderSystem.setShader(GameRenderer::getPositionTexShader);
+            RenderSystem.setShaderColor(intensity, intensity, intensity, 1F);
+            GL14.glBlendEquation(GL14.GL_FUNC_ADD);
+            RenderSystem.setShaderTexture(0, pos);
+            GuiComponent.blit(ps, 0, 0, w, h, u0, v0, regionW, regionH, texSize, texSize);
+            GL14.glBlendEquation(GL14.GL_FUNC_REVERSE_SUBTRACT);
+            RenderSystem.setShaderTexture(0, neg);
+            GuiComponent.blit(ps, 0, 0, w, h, u0, v0, regionW, regionH, texSize, texSize);
+        } finally {
+            GL14.glBlendEquation(GL14.GL_FUNC_ADD);
+            RenderSystem.colorMask(true, true, true, true);
+            RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableBlend();
+        }
+    }
+
     static void drawNoise(PoseStack ps, int w, int h, float alpha) {
         Minecraft mc = Minecraft.getInstance();
+        if (cameraGrainAvailable(mc)) {
+            try {
+                drawCameraGrain(ps, w, h, alpha);
+            } catch (Throwable ignored) {
+                RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+            }
+            return;
+        }
         try {
             if (noise == null) {
                 noise = new DynamicTexture(NOISE_TEX, NOISE_TEX, false);
